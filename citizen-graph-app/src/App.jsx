@@ -5,6 +5,8 @@ import MainLayout from './components/MainLayout';
 // Import các trang (Sau này các bạn code xong trang nào thì import trang đó)
 import Dashboard from './pages/Dashboard';
 import DatabaseConnection from './pages/DatabaseConnection';
+import FamilyGraphPage from './pages/FamilyGraph';
+
 // import CitizenPage from './pages/Citizen'; 
 // ...
 
@@ -22,8 +24,8 @@ const App = () => {
           <Route path="database" element={<DatabaseConnection />} />
           <Route path="citizens" element={<Placeholder title="Hồ sơ công dân" />} />
           <Route path="residency" element={<Placeholder title="Quản lý cư trú" />} />
-          <Route path="family" element={<Placeholder title="Gia đình & Phả hệ" />} />
-          <Route path="assets" element={<Placeholder title="Tài sản" />} />
+          <Route path="family" element={<FamilyGraphPage />} />
+          <Route path="assets" element={<AssetsManagement />} />
           <Route path="security" element={<Placeholder title="An ninh" />} />
           <Route path="health" element={<Placeholder title="Y tế" />} />
           <Route path="trace" element={<Placeholder title="Truy vết Graph" />} />

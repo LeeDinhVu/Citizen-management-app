@@ -3,7 +3,7 @@ import { Card, Statistic, Row, Col, Alert, Spin, Button } from 'antd';
 import { CheckCircleOutlined, ExclamationOutlined, LoadingOutlined } from '@ant-design/icons';
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL ='http://localhost:5000/api';
 
 const DatabaseConnection = () => {
   const [status, setStatus] = useState(null);
@@ -28,7 +28,7 @@ const DatabaseConnection = () => {
       if (!response.data.isConnected) {
         setError(response.data.message || 'Không thể kết nối tới Neo4j');
       }
-    } catch (err) {
+    } catch (err) { 
       console.error('❌ Lỗi kết nối backend:', err.message);
       
       if (err.code === 'ECONNREFUSED') {

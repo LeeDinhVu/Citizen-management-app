@@ -10,11 +10,18 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ant-design/charts": "^2.6.6",
     "@ant-design/icons": "^6.1.0",
     "antd": "^6.0.0",
-    "axios": "^1.6.0",
+    "axios": "^1.13.2",
+    "d3": "^7.9.0",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^0.554.0",
     "react": "^19.2.0",
+    "react-d3-tree": "^3.6.6",
     "react-dom": "^19.2.0",
+    "react-force-graph-2d": "^1.29.0",
+    "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.9.6"
   },
   "devDependencies": {
