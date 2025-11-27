@@ -10,6 +10,7 @@
         "dependencies": {
           "Microsoft.AspNetCore.OpenApi": "10.0.0",
           "Neo4j.Driver": "5.28.3",
+          "Newtonsoft.Json": "13.0.4",
           "Swashbuckle.AspNetCore": "10.0.1"
         },
         "runtime": {
@@ -40,6 +41,14 @@
           "lib/net8.0/Neo4j.Driver.dll": {
             "assemblyVersion": "5.28.42.3",
             "fileVersion": "5.28.3.0"
+          }
+        }
+      },
+      "Newtonsoft.Json/13.0.4": {
+        "runtime": {
+          "lib/net6.0/Newtonsoft.Json.dll": {
+            "assemblyVersion": "13.0.0.0",
+            "fileVersion": "13.0.4.30916"
           }
         }
       },
@@ -108,6 +117,13 @@
       "sha512": "sha512-nGfPRmx11Ma/dWcy54swbP+5tu++KrvR5DZgSWi/zAgFEPoObubGaO540i0flTleH0sZQkO8X9lAg4H2Y05ffg==",
       "path": "neo4j.driver/5.28.3",
       "hashPath": "neo4j.driver.5.28.3.nupkg.sha512"
+    },
+    "Newtonsoft.Json/13.0.4": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A==",
+      "path": "newtonsoft.json/13.0.4",
+      "hashPath": "newtonsoft.json.13.0.4.nupkg.sha512"
     },
     "Swashbuckle.AspNetCore/10.0.1": {
       "type": "package",

@@ -36,3 +36,4 @@ E:\app\citizen-graph-app\CitizenGraph-Backend\obj\Debug\net10.0\CitizenGraph-Bac
 E:\app\citizen-graph-app\CitizenGraph-Backend\obj\Debug\net10.0\CitizenGraph-Backend.genruntimeconfig.cache
 E:\app\citizen-graph-app\CitizenGraph-Backend\obj\Debug\net10.0\ref\CitizenGraph-Backend.dll
 E:\app\citizen-graph-app\CitizenGraph-Backend\obj\Debug\net10.0\CitizenGraph-Backend.sourcelink.json
+E:\app\citizen-graph-app\CitizenGraph-Backend\bin\Debug\net10.0\Newtonsoft.Json.dll

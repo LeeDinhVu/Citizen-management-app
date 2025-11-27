@@ -154,7 +154,7 @@ namespace CitizenGraph.Backend.Controllers
                 var records = await _repo.RunAsync(manualQuery, new { cccd });
                 if (!records.Any()) {
                      await LogAction(action, "Thành công (Không có dữ liệu)");
-                     return Ok(new { success = false, message = "Not found" });
+                     return Ok(new { success = false , message = "Not found" });
                 }
                 await LogAction(action, "Thành công");
                 return ProcessGraphResult(records[0]);

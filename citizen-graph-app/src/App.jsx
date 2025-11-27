@@ -6,6 +6,7 @@ import MainLayout from './components/MainLayout';
 import Dashboard from './pages/Dashboard';
 import DatabaseConnection from './pages/DatabaseConnection';
 import FamilyGraphPage from './pages/FamilyGraph';
+import AssetManagementPage from './pages/AssetManagement';
 
 // import CitizenPage from './pages/Citizen'; 
 // ...
@@ -25,7 +26,7 @@ const App = () => {
           <Route path="citizens" element={<Placeholder title="Hồ sơ công dân" />} />
           <Route path="residency" element={<Placeholder title="Quản lý cư trú" />} />
           <Route path="family" element={<FamilyGraphPage />} />
-          <Route path="assets" element={<AssetsManagement />} />
+          <Route path="assets" element={<AssetManagementPage />} />
           <Route path="security" element={<Placeholder title="An ninh" />} />
           <Route path="health" element={<Placeholder title="Y tế" />} />
           <Route path="trace" element={<Placeholder title="Truy vết Graph" />} />
