@@ -8,75 +8,58 @@ import {
   WalletOutlined, HomeOutlined, CarOutlined, ApartmentOutlined,
   ShopOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
   LinkOutlined, DisconnectOutlined, RedoOutlined, UserOutlined,
-  SearchOutlined, BarChartOutlined, TagOutlined
+  SearchOutlined, BarChartOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 
 const { Title } = Typography;
 const { Option } = Select;
 
-// Đảm bảo Backend C# đang chạy ở port 5000 (http)
-const API_URL = 'http://localhost:5000/api/assets'; 
+const API_URL = 'http://localhost:5000/api/assets'; // Đúng với route đã sửa
 
 const AssetManagementPage = () => {
-  // --- STATE ---
   const [stats, setStats] = useState(null);
-  const [owners, setOwners] = useState([]); // Dùng cho Dashboard và Dropdown chọn người
-  const [assets, setAssets] = useState([]); 
-  const [activeAssetType, setActiveAssetType] = useState('RealEstate'); 
-
-  // State riêng cho tab Ownership để không ảnh hưởng tab Assets
+  const [owners, setOwners] = useState([]);
+  const [assets, setAssets] = useState([]);
+  const [activeAssetType, setActiveAssetType] = useState('RealEstate');
   const [ownershipAssetType, setOwnershipAssetType] = useState('RealEstate');
-  const [dropdownAssets, setDropdownAssets] = useState([]); 
-
+  const [dropdownAssets, setDropdownAssets] = useState([]);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
   const [loadingAssets, setLoadingAssets] = useState(false);
-  
-  // Modals Visibility
   const [assetModalVisible, setAssetModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
-  
-  // Selection & Editing
   const [selectedOwner, setSelectedOwner] = useState(null);
-  const [editingAsset, setEditingAsset] = useState(null); 
+  const [editingAsset, setEditingAsset] = useState(null);
   const [searchText, setSearchText] = useState('');
-
-  // Forms
   const [formAsset] = Form.useForm();
   const [formAssign] = Form.useForm();
 
-  // --- EFFECT ---
   useEffect(() => { fetchData(); }, []);
-  
-  useEffect(() => { 
-    if (activeAssetType) fetchAssets(); 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (activeAssetType) fetchAssets();
   }, [activeAssetType]);
 
-  // Fetch assets cho dropdown khi loại tài sản trong tab Ownership thay đổi
   useEffect(() => {
     fetchDropdownAssets();
   }, [ownershipAssetType]);
 
-  // --- API HELPER FUNCTIONS ---
-  const fetchData = () => { fetchDashboard(); fetchAssets(); fetchDropdownAssets(); };
+  const fetchData = () => {
+    fetchDashboard();
+    fetchAssets();
+    fetchDropdownAssets();
+  };
 
   const fetchDashboard = async () => {
     setLoadingDashboard(true);
     try {
-      // console.log(`%c[API CALL] GET ${API_URL}/dashboard...`, 'color: blue; font-weight: bold;');
       const res = await axios.get(`${API_URL}/dashboard`);
-      
       if (res.data) {
         setStats(res.data.statistics);
         setOwners(res.data.ownersGrid || []);
       }
     } catch (err) {
-      console.error('❌ [API ERROR] Dashboard Failed:', err);
-      notification.error({ 
-        message: 'Lỗi kết nối', 
-        description: 'Không thể tải dữ liệu Dashboard.' 
-      });
+      notification.error({ message: 'Lỗi', description: 'Không thể tải Dashboard' });
     } finally {
       setLoadingDashboard(false);
     }
@@ -88,20 +71,18 @@ const AssetManagementPage = () => {
       const res = await axios.get(`${API_URL}/assets/${activeAssetType}`);
       setAssets(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
-      notification.error({ message: 'Lỗi', description: `Không thể tải danh sách ${activeAssetType}` });
+      notification.error({ message: 'Lỗi tải danh sách tài sản' });
       setAssets([]);
     } finally {
       setLoadingAssets(false);
     }
   };
 
-  // Hàm mới: Lấy danh sách tài sản riêng cho Dropdown trong tab Ownership
   const fetchDropdownAssets = async () => {
     try {
       const res = await axios.get(`${API_URL}/assets/${ownershipAssetType}`);
       setDropdownAssets(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
-      console.error('Lỗi tải dropdown assets', err);
       setDropdownAssets([]);
     }
   };
@@ -109,12 +90,10 @@ const AssetManagementPage = () => {
   const viewOwnerDetail = async (cccd) => {
     try {
       const res = await axios.get(`${API_URL}/detail/${cccd}`);
-      if (res.data) {
-        setSelectedOwner(res.data);
-        setDetailModalVisible(true);
-      }
+      setSelectedOwner(res.data);
+      setDetailModalVisible(true);
     } catch (err) {
-      notification.error({ message: 'Lỗi', description: 'Không tìm thấy thông tin chi tiết' });
+      notification.error({ message: 'Không tìm thấy chi tiết' });
     }
   };
 
@@ -189,75 +168,63 @@ const AssetManagementPage = () => {
   };
 
   // --- RENDER FUNCTIONS ---
-  const renderDashboard = () => {
+const renderDashboard = () => {
     return (
       <div>
-        {stats && (
-          <Row gutter={16} style={{ marginBottom: 24 }}>
-            <Col span={8}>
-              <Card bordered={false}>
-                <Statistic 
-                  title="Bất động sản" 
-                  value={stats.realEstate?.count || 0} 
-                  prefix={<ApartmentOutlined />} 
-                  valueStyle={{ color: '#722ed1' }}
-                  suffix={<small style={{fontSize: 12, color: '#888'}}>({new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.realEstate?.value || 0)})</small>}
-                />
-              </Card>
-            </Col>
-            <Col span={8}>
-              <Card bordered={false}>
-                <Statistic 
-                  title="Phương tiện" 
-                  value={stats.vehicle?.count || 0} 
-                  prefix={<CarOutlined />} 
-                  valueStyle={{ color: '#08979c' }}
-                  suffix={<small style={{fontSize: 12, color: '#888'}}>({new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.vehicle?.value || 0)})</small>}
-                />
-              </Card>
-            </Col>
-            <Col span={8}>
-              <Card bordered={false}>
-                <Statistic 
-                  title="Doanh nghiệp" 
-                  value={stats.business?.count || 0} 
-                  prefix={<ShopOutlined />} 
-                  valueStyle={{ color: '#d4380d' }}
-                  suffix={<small style={{fontSize: 12, color: '#888'}}>({new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.business?.value || 0)})</small>}
-                />
-              </Card>
-            </Col>
-          </Row>
-        )}
-
-        {!stats && !loadingDashboard && <Empty description="Không có dữ liệu thống kê" />}
-
-        <Card title={<span><BarChartOutlined /> Top 100 Công dân có tài sản lớn nhất</span>}>
-          <Table
-            dataSource={owners}
-            rowKey="cccd"
-            loading={loadingDashboard}
-            pagination={{ pageSize: 10 }}
-            columns={[
-              {
-                title: 'Họ tên',
-                dataIndex: 'hoTen',
-                render: (t, r) => <a onClick={() => viewOwnerDetail(r.cccd)}><b><UserOutlined /> {t}</b></a>
-              },
-              { title: 'CCCD', dataIndex: 'cccd', render: t => <Tag color="blue">{t}</Tag> },
-              { title: 'BĐS', dataIndex: 'soLuongBDS', align: 'center', render: v => v > 0 ? <Tag color="purple">{v}</Tag> : '-' },
-              { title: 'Xe', dataIndex: 'soLuongXe', align: 'center', render: v => v > 0 ? <Tag color="cyan">{v}</Tag> : '-' },
-              { title: 'DN', dataIndex: 'soLuongDN', align: 'center', render: v => v > 0 ? <Tag color="orange">{v}</Tag> : '-' },
-              {
-                title: 'Tổng Giá Trị',
-                dataIndex: 'tongGiaTri',
-                align: 'right',
-                render: v => <span style={{ color: '#cf1322', fontWeight: 600 }}>{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(v)}</span>
-              },
-            ]}
-          />
-        </Card>
-      </div>
+      {stats && (
+        <Row gutter={16} style={{ marginBottom: 24 }}>
+          <Col span={8}>
+            <Card>
+              <Statistic
+                title="Bất động sản"
+                value={stats.RealEstate?.Count || 0}
+                prefix={<ApartmentOutlined />}
+                valueStyle={{ color: '#722ed1' }}
+                suffix={<small>({new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.RealEstate?.Value || 0)})</small>}
+              />
+            </Card>
+          </Col>
+          <Col span={8}>
+            <Card>
+              <Statistic
+                title="Phương tiện"
+                value={stats.Vehicle?.Count || 0}
+                prefix={<CarOutlined />}
+                valueStyle={{ color: '#08979c' }}
+                suffix={<small>({new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.Vehicle?.Value || 0)})</small>}
+              />
+            </Card>
+          </Col>
+          <Col span={8}>
+            <Card>
+              <Statistic
+                title="Doanh nghiệp"
+                value={stats.Business?.Count || 0}
+                prefix={<ShopOutlined />}
+                valueStyle={{ color: '#d4380d' }}
+                suffix={<small>({new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.Business?.Value || 0)})</small>}
+              />
+            </Card>
+          </Col>
+        </Row>
+      )}
+      <Card title={<><BarChartOutlined /> Top 100 Công dân giàu nhất</>}>
+        <Table
+          dataSource={owners}
+          rowKey="cccd"
+          loading={loadingDashboard}
+          pagination={{ pageSize: 10 }}
+          columns={[
+            { title: 'Họ tên', dataIndex: 'hoTen', render: (t, r) => <a onClick={() => viewOwnerDetail(r.cccd)}><b><UserOutlined /> {t}</b></a> },
+            { title: 'CCCD', dataIndex: 'cccd', render: t => <Tag color="blue">{t}</Tag> },
+            { title: 'BĐS', dataIndex: 'soLuongBDS', render: v => v > 0 ? <Tag color="purple">{v}</Tag> : '-' },
+            { title: 'Xe', dataIndex: 'soLuongXe', render: v => v > 0 ? <Tag color="cyan">{v}</Tag> : '-' },
+            { title: 'DN', dataIndex: 'soLuongDN', render: v => v > 0 ? <Tag color="orange">{v}</Tag> : '-' },
+            { title: 'Tổng giá trị', dataIndex: 'tongGiaTri', align: 'right', render: v => <b style={{ color: '#cf1322' }}>{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(v)}</b> },
+          ]}
+        />
+      </Card>
+    </div>
     );
   };
 

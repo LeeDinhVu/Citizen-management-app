@@ -7,6 +7,8 @@ import Dashboard from './pages/Dashboard';
 import DatabaseConnection from './pages/DatabaseConnection';
 import FamilyGraphPage from './pages/FamilyGraph';
 import AssetManagementPage from './pages/AssetManagement';
+import CitizenPage from './pages/CitizensManagement';
+import CitizensManagement from './pages/CitizensManagement';
 
 // import CitizenPage from './pages/Citizen'; 
 // ...
@@ -23,7 +25,7 @@ const App = () => {
           <Route index element={<Dashboard />} />
           
           <Route path="database" element={<DatabaseConnection />} />
-          <Route path="citizens" element={<Placeholder title="Hồ sơ công dân" />} />
+          <Route path="citizens" element={<CitizensManagement />} />
           <Route path="residency" element={<Placeholder title="Quản lý cư trú" />} />
           <Route path="family" element={<FamilyGraphPage />} />
           <Route path="assets" element={<AssetManagementPage />} />

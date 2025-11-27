@@ -272,6 +272,692 @@ namespace CitizenGraph.Backend.Controllers
 // using System;
 // using System.Text.Json;
 
+// using Microsoft.AspNetCore.Mvc;
+// using Neo4j.Driver;
+// using CitizenGraph.Backend.Services;
+// using System.Collections.Generic;
+// using System.Linq;
+// using System.Threading.Tasks;
+// using System;
+// using System.Text.Json;
+
+// namespace CitizenGraph.Backend.Controllers
+// {
+//     // --- GIỮ NGUYÊN TẤT CẢ DTO ---
+//     public class PersonDto { public string Id { get; set; } = ""; public string HoTen { get; set; } = ""; public string? NgaySinh { get; set; } public string? GioiTinh { get; set; } public string? QueQuan { get; set; } public string? MaritalStatus { get; set; } public string? NgheNghiep { get; set; } public Dictionary<string, object> Details { get; set; } = new(); }
+//     public class MemberPreviewDto { public string Name { get; set; } = ""; public string Cccd { get; set; } = ""; }
+//     public class HouseholdMemberDetailDto { public PersonDto Member { get; set; } = new(); public PersonDto? HeadOfHousehold { get; set; } public string RelationToHead { get; set; } = ""; public string HouseholdAddress { get; set; } = ""; }
+//     public class RelationshipDto { public long Id { get; set; } public string Source { get; set; } = ""; public string Target { get; set; } = ""; public string Type { get; set; } = ""; public string Label { get; set; } = ""; public Dictionary<string, object> Properties { get; set; } = new(); }
+//     public class RelationshipCreateDto { public string SourceId { get; set; } = ""; public string TargetId { get; set; } = ""; public string Type { get; set; } = ""; public Dictionary<string, object> Properties { get; set; } = new(); }
+//     public class PersonDropdownDto { public string Value { get; set; } = ""; public string Label { get; set; } = ""; }
+//     public class HouseholdCreateDto { public string HouseholdId { get; set; } = ""; public string HeadCccd { get; set; } = ""; public string RegistrationNumber { get; set; } = ""; public string Address { get; set; } = ""; public string ResidencyType { get; set; } = ""; }
+//     public class AddMemberDto { public string HouseholdId { get; set; } = ""; public string PersonCccd { get; set; } = ""; public string RelationToHead { get; set; } = ""; public string Role { get; set; } = ""; public string FromDate { get; set; } = ""; }
+//     public class DashboardStatsDto 
+//     { 
+//         public long TotalCitizens { get; set; } 
+//         public long TotalRelationships { get; set; } 
+//         public long MarriedCount { get; set; } 
+//         public long SingleCount { get; set; } 
+//         public double AvgChildrenPerFamily { get; set; } 
+//         public Dictionary<string, long> GenderDistribution { get; set; } = new(); 
+//         public Dictionary<string, long> RelationshipBreakdown { get; set; } = new(); 
+//     }
+
+//     [ApiController]
+//     [Route("api/[controller]")]
+//     public class FamilyController : ControllerBase
+//     {
+//         private readonly Neo4jRepository _repo;
+//         private readonly AdminActionLogger _logger; // Logger dùng chung toàn hệ thống
+
+//         public FamilyController(Neo4jRepository repo, AdminActionLogger logger)
+//         {
+//             _repo = repo;
+//             _logger = logger;
+//         }
+
+//         // =========================================================================================
+//         // READ OPERATIONS – ĐÃ CHUYỂN SANG DÙNG AdminActionLogger
+//         // =========================================================================================
+
+//         [HttpGet("dropdown-list")]
+//         public async Task<IActionResult> GetDropdownList()
+//         {
+//             // Không log vì gọi quá nhiều lần (select2 dropdown)
+//             var r = await _repo.RunAsync(@"
+//                 MATCH (p:Person) 
+//                 RETURN p.cccd AS value, 
+//                        p.hoTen + ' (' + coalesce(toString(p.ngaySinh), '?') + ')' AS label 
+//                 ORDER BY p.hoTen");
+//             return Ok(new { success = true, data = r.Select(x => new PersonDropdownDto 
+//             { 
+//                 Value = SafeString(x["value"]), 
+//                 Label = SafeString(x["label"]) 
+//             })});
+//         }
+
+//         [HttpGet("stats")]
+//         public async Task<IActionResult> GetStats()
+//         {
+//             const string action = "Xem thống kê tổng quan (Stats)";
+//             await _logger.LogProcessing(action, "Family");
+
+//             try
+//             {
+//                 var nRes = await _repo.RunAsync(@"
+//                     MATCH (n:Person) 
+//                     RETURN count(n) AS total,
+//                            sum(CASE WHEN toLower(coalesce(n.maritalStatus,'')) CONTAINS 'kết hôn' THEN 1 ELSE 0 END) AS married,
+//                            sum(CASE WHEN n.gioiTinh='Nam' THEN 1 ELSE 0 END) AS male,
+//                            sum(CASE WHEN n.gioiTinh='Nữ' THEN 1 ELSE 0 END) AS female");
+
+//                 if (!nRes.Any())
+//                 {
+//                     await _logger.LogSuccess(action, "Family");
+//                     return Ok(new DashboardStatsDto());
+//                 }
+
+//                 var nRec = nRes.First();
+
+//                 var rRes = await _repo.RunAsync("MATCH ()-[r]->() RETURN count(r) AS totalRel");
+//                 var brRes = await _repo.RunAsync("MATCH ()-[r]->() RETURN type(r) AS type, count(r) AS cnt ORDER BY cnt DESC");
+//                 var aRes = await _repo.RunAsync(@"
+//                     MATCH (p:Person)-[:FATHER_OF|MOTHER_OF]->(c:Person) 
+//                     WITH p, count(c) AS children 
+//                     RETURN avg(children) AS avgChildren");
+
+//                 await _logger.LogSuccess(action, "Family");
+
+//                 return Ok(new DashboardStatsDto
+//                 {
+//                     TotalCitizens = nRec["total"].As<long>(),
+//                     MarriedCount = nRec["married"].As<long>(),
+//                     SingleCount = nRec["total"].As<long>() - nRec["married"].As<long>(),
+//                     TotalRelationships = rRes.Any() ? rRes.First()["totalRel"].As<long>() : 0,
+//                     AvgChildrenPerFamily = aRes.Any() ? Math.Round(aRes.First()["avgChildren"].As<double>(), 2) : 0,
+//                     GenderDistribution = new Dictionary<string, long>
+//                     {
+//                         ["Nam"] = nRec["male"].As<long>(),
+//                         ["Nữ"] = nRec["female"].As<long>(),
+//                         ["Khác"] = nRec["total"].As<long>() - nRec["male"].As<long>() - nRec["female"].As<long>()
+//                     },
+//                     RelationshipBreakdown = brRes.ToDictionary(x => x["type"].As<string>(), x => x["cnt"].As<long>())
+//                 });
+//             }
+//             catch (Exception ex)
+//             {
+//                 await _logger.LogFailed($"Xem thống kê thất bại: {ex.Message}", "Family");
+//                 return StatusCode(500, new { success = false, message = ex.Message });
+//             }
+//         }
+
+//         [HttpGet("citizens")]
+//         public async Task<IActionResult> GetCitizens([FromQuery] int limit = 1000, [FromQuery] string search = "")
+//         {
+//             var action = string.IsNullOrEmpty(search) 
+//                 ? "Xem danh sách toàn bộ công dân" 
+//                 : $"Tìm kiếm công dân với từ khóa: '{search}'";
+
+//             await _logger.LogProcessing(action, "Family");
+
+//             try
+//             {
+//                 var r = await _repo.RunAsync(@"
+//                     MATCH (p:Person) 
+//                     WHERE ($search = '' 
+//                         OR toLower(p.hoTen) CONTAINS toLower($search) 
+//                         OR p.cccd CONTAINS $search)
+//                     RETURN p 
+//                     ORDER BY p.hoTen 
+//                     LIMIT $limit", new { limit, search });
+
+//                 await _logger.LogSuccess(action, "Family");
+//                 return Ok(r.Select(x => MapNodeToDto(x["p"].As<INode>())).ToList());
+//             }
+//             catch
+//             {
+//                 await _logger.LogFailed(action, "Family");
+//                 throw;
+//             }
+//         }
+
+//         [HttpGet("households")]
+//         public async Task<IActionResult> GetHouseholds()
+//         {
+//             await _logger.LogProcessing("Xem danh sách hộ khẩu", "Family");
+
+//             try
+//             {
+//                 const string query = @"
+//                     MATCH (h:Household) 
+//                     OPTIONAL MATCH (h)<-[:CURRENT_RESIDENT]-(p:Person)
+//                     OPTIONAL MATCH (h)-[:REGISTERED_AT]->(a:Address)
+//                     WITH h, a, count(p) AS cnt, collect({name: p.hoTen, cccd: toString(p.cccd)})[..6] AS members
+//                     RETURN 
+//                       coalesce(a.addressId, h.householdId, 'N/A') AS id,
+//                       coalesce(toString(a.houseNumber) + ' ' + a.street, h.hoKhauSo, 'Chưa cập nhật') AS address,
+//                       h.registrationNumber AS regNum,
+//                       h.residencyType AS resType,
+//                       cnt,
+//                       members,
+//                       h.householdId AS householdCode 
+//                     ORDER BY cnt DESC 
+//                     LIMIT 100";
+
+//                 var records = await _repo.RunAsync(query);
+
+//                 await _logger.LogSuccess("Xem danh sách hộ khẩu", "Family");
+
+//                 return Ok(new
+//                 {
+//                     success = true,
+//                     data = records.Select(r => new
+//                     {
+//                         AddressId = SafeString(r["id"]),
+//                         HouseholdCode = SafeString(r["householdCode"]),
+//                         RegistrationNumber = SafeString(r["regNum"]),
+//                         ResidencyType = SafeString(r["resType"]),
+//                         Address = SafeString(r["address"]),
+//                         Count = r["cnt"].As<int>(),
+//                         Members = r["members"].As<List<IDictionary<string, object>>>()
+//                                   .Select(m => new MemberPreviewDto
+//                                   {
+//                                       Name = m["name"]?.ToString() ?? "",
+//                                       Cccd = m["cccd"]?.ToString() ?? ""
+//                                   }).ToList()
+//                     })
+//                 });
+//             }
+//             catch
+//             {
+//                 await _logger.LogFailed("Xem danh sách hộ khẩu", "Family");
+//                 throw;
+//             }
+//         }
+
+//         [HttpGet("member-detail")]
+//         public async Task<IActionResult> GetHouseholdMemberDetail([FromQuery] string cccd)
+//         {
+//             var action = $"Xem chi tiết thành viên CCCD: {cccd}";
+//             await _logger.LogProcessing(action, "Family");
+
+//             try
+//             {
+//                 var query = @"
+//                     MATCH (p:Person {cccd: $cccd}) 
+//                     OPTIONAL MATCH (p)-[r:CURRENT_RESIDENT]->(h:Household)
+//                     OPTIONAL MATCH (h)-[:REGISTERED_AT]->(a:Address)
+//                     OPTIONAL MATCH (head:Person {cccd: h.headOfHouseholdCCCD})
+//                     RETURN p, r.relationToHead AS relation, r AS relProps, head, 
+//                            coalesce(toString(a.houseNumber) + ' ' + a.street, h.hoKhauSo) AS address";
+
+//                 var records = await _repo.RunAsync(query, new { cccd });
+
+//                 if (!records.Any())
+//                 {
+//                     await _logger.LogFailed($"{action} - Không tìm thấy", "Family");
+//                     return NotFound(new { success = false, message = "Không tìm thấy" });
+//                 }
+
+//                 var rec = records.First();
+//                 var headNode = rec["head"] is INode node ? node : null;
+//                 var relProps = rec["relProps"] is IRelationship rel ? NormalizeDictionary(rel.Properties) : new Dictionary<string, object>();
+
+//                 await _logger.LogSuccess(action, "Family");
+
+//                 return Ok(new
+//                 {
+//                     success = true,
+//                     data = new
+//                     {
+//                         Member = MapNodeToDto(rec["p"].As<INode>()),
+//                         HeadOfHousehold = headNode != null ? MapNodeToDto(headNode) : null,
+//                         RelationToHead = SafeString(rec["relation"]),
+//                         HouseholdAddress = SafeString(rec["address"]),
+//                         ResidentRelProps = relProps
+//                     }
+//                 });
+//             }
+//             catch
+//             {
+//                 await _logger.LogFailed(action, "Family");
+//                 throw;
+//             }
+//         }
+
+//         [HttpGet("genealogy-all")]
+//         public async Task<IActionResult> GetAllCitizensForGenealogy()
+//         {
+//             await _logger.LogProcessing("Xem danh sách phả hệ", "Family");
+
+//             try
+//             {
+//                 var r = await _repo.RunAsync(@"
+//                     MATCH (p:Person) 
+//                     OPTIONAL MATCH (p)-[:FATHER_OF|MOTHER_OF]->(child:Person)
+//                     WITH p, count(child) AS childrenCount
+//                     RETURN p.hoTen AS name, toString(p.cccd) AS id, toString(p.ngaySinh) AS dob, childrenCount
+//                     ORDER BY name ASC LIMIT 1000");
+
+//                 await _logger.LogSuccess("Xem danh sách phả hệ", "Family");
+
+//                 return Ok(new
+//                 {
+//                     success = true,
+//                     data = r.Select(x => new
+//                     {
+//                         Cccd = SafeString(x["id"]),
+//                         HoTen = SafeString(x["name"]),
+//                         NgaySinh = SafeString(x["dob"]),
+//                         SoConTrucTiep = x["childrenCount"].As<int>()
+//                     })
+//                 });
+//             }
+//             catch
+//             {
+//                 await _logger.LogFailed("Xem danh sách phả hệ", "Family");
+//                 throw;
+//             }
+//         }
+
+//         [HttpGet("full-tree")]
+//         public async Task<IActionResult> GetFullTree([FromQuery] string cccd)
+//         {
+//             var action = $"Xem cây phả hệ của CCCD: {cccd}";
+//             await _logger.LogProcessing(action, "Family");
+
+//             try
+//             {
+//                 var manualQuery = @"MATCH (root:Person) WHERE toString(root.cccd) = $cccd 
+//                     OPTIONAL MATCH path = (root)-[:FATHER_OF|MOTHER_OF|MARRIED_TO|CHILD_OF|SIBLING*0..3]-(p:Person) 
+//                     WITH root, collect(path) AS paths 
+//                     WITH root, [p IN paths | nodes(p)] AS nodeLists, [p IN paths | relationships(p)] AS relLists 
+//                     UNWIND nodeLists AS nl UNWIND nl AS n 
+//                     WITH root, relLists, collect(DISTINCT n) AS allNodes 
+//                     UNWIND relLists AS rl UNWIND rl AS r 
+//                     WITH root, allNodes, collect(r) AS rawRels 
+//                     UNWIND rawRels AS r 
+//                     WITH root, allNodes, startNode(r) AS s, endNode(r) AS e, r 
+//                     WHERE s = root 
+//                     WITH root, allNodes, s, e, r, apoc.coll.sort([id(s), id(e)]) AS pairKey 
+//                     WITH root, allNodes, pairKey, collect(r)[0] AS uniqRel 
+//                     WITH root, collect(DISTINCT uniqRel) AS rels, allNodes 
+//                     WITH root, rels, [r IN rels | endNode(r)] AS connectedNodes 
+//                     WITH rels, connectedNodes + [root] AS nodes 
+//                     RETURN nodes, rels";
+
+//                 var records = await _repo.RunAsync(manualQuery, new { cccd });
+
+//                 if (!records.Any())
+//                 {
+//                     await _logger.LogSuccess($"{action} (Không có dữ liệu)", "Family");
+//                     return Ok(new { success = false, message = "Không tìm thấy" });
+//                 }
+
+//                 await _logger.LogSuccess(action, "Family");
+//                 return ProcessGraphResult(records.First());
+//             }
+//             catch
+//             {
+//                 await _logger.LogFailed(action, "Family");
+//                 throw;
+//             }
+//         }
+
+//         [HttpGet("global-graph")]
+//         public async Task<IActionResult> GetGlobalGraph()
+//         {
+//             await _logger.LogProcessing("Xem toàn cảnh quan hệ (Global Graph)", "Family");
+
+//             try
+//             {
+//                 var records = await _repo.RunAsync(@"
+//                     MATCH (n:Person) 
+//                     OPTIONAL MATCH (n)-[r:FATHER_OF|MOTHER_OF|MARRIED_TO|CHILD_OF|SIBLING]-(m:Person) 
+//                     WHERE elementId(n) <> elementId(m) 
+//                     WITH CASE WHEN elementId(n) < elementId(m) THEN n ELSE m END AS node1,
+//                          CASE WHEN elementId(n) < elementId(m) THEN m ELSE n END AS node2,
+//                          collect(r) AS relsBetween
+//                     WITH node1, node2, head(relsBetween) AS r 
+//                     RETURN collect(DISTINCT node1) + collect(DISTINCT node2) AS nodes, 
+//                            collect(DISTINCT r) AS rels 
+//                     LIMIT 3000");
+
+//                 await _logger.LogSuccess("Xem toàn cảnh quan hệ (Global Graph)", "Family");
+//                 return ProcessGraphResult(records.First());
+//             }
+//             catch
+//             {
+//                 await _logger.LogFailed("Xem toàn cảnh quan hệ (Global Graph)", "Family");
+//                 throw;
+//             }
+//         }
+
+//         // =========================================================================================
+//         // CRUD OPERATIONS – ĐÃ CHUYỂN SANG DÙNG AdminActionLogger
+//         // =========================================================================================
+
+//         [HttpPost("relationship")]
+//         public async Task<IActionResult> CreateRelationship([FromBody] RelationshipCreateDto input)
+//         {
+//             var desc = $"Tạo quan hệ {input.Type} giữa {input.SourceId} → {input.TargetId}";
+//             await _logger.LogProcessing(desc, "Family");
+
+//             try
+//             {
+//                 var query = @"
+//                     MATCH (a:Person {cccd: $sourceId}), (b:Person {cccd: $targetId})
+//                     MERGE (a)-[r:{input.Type}]->(b)
+//                     ON CREATE SET r += $props
+//                     RETURN r";
+
+//                 var r = await _repo.RunAsync(query, new
+//                 {
+//                     sourceId = input.SourceId,
+//                     targetId = input.TargetId,
+//                     props = ConvertDictionary(input.Properties)
+//                 });
+
+//                 if (!r.Any())
+//                 {
+//                     await _logger.LogFailed($"{desc} - Không tìm thấy công dân", "Family");
+//                     return NotFound(new { success = false, message = "Không tìm thấy công dân" });
+//                 }
+
+//                 await _logger.LogSuccess(desc, "Family");
+//                 return Ok(new { success = true, message = "Thành công" });
+//             }
+//             catch (Exception ex)
+//             {
+//                 await _logger.LogFailed($"{desc} - Lỗi: {ex.Message}", "Family");
+//                 return StatusCode(500, new { success = false, message = ex.Message });
+//             }
+//         }
+
+//         [HttpPut("relationship/{relId}")]
+//         public async Task<IActionResult> UpdateRelationship(long relId, [FromBody] Dictionary<string, object> properties)
+//         {
+//             var desc = $"Cập nhật quan hệ ID:{relId}";
+//             await _logger.LogProcessing(desc, "Family");
+
+//             try
+//             {
+//                 var safeProps = ConvertDictionary(properties);
+//                 await _repo.RunAsync("MATCH ()-[r]->() WHERE id(r) = $relId SET r += $props RETURN r", 
+//                     new { relId, props = safeProps });
+//                 await _logger.LogSuccess(desc, "Family");
+//                 return Ok(new { success = true });
+//             }
+//             catch
+//             {
+//                 await _logger.LogFailed(desc, "Family");
+//                 throw;
+//             }
+//         }
+
+//         [HttpDelete("relationship/{id}")]
+//         public async Task<IActionResult> DeleteRelationshipById(long id)
+//         {
+//             var desc = $"Xóa quan hệ ID:{id}";
+//             await _logger.LogProcessing(desc, "Family");
+
+//             try
+//             {
+//                 await _repo.RunAsync("MATCH ()-[r]->() WHERE id(r) = $id DELETE r", new { id });
+//                 await _logger.LogSuccess(desc, "Family");
+//                 return Ok(new { success = true });
+//             }
+//             catch
+//             {
+//                 await _logger.LogFailed(desc, "Family");
+//                 throw;
+//             }
+//         }
+
+//         [HttpPost("household")]
+//         public async Task<IActionResult> CreateHousehold([FromBody] HouseholdCreateDto input)
+//         {
+//             var desc = $"Tạo hộ khẩu {input.HouseholdId} (Chủ hộ: {input.HeadCccd})";
+//             await _logger.LogProcessing(desc, "Family");
+
+//             try
+//             {
+//                 await _repo.RunAsync(@"
+//                     MERGE (h:Household {householdId: $hid})
+//                     ON CREATE SET 
+//                         h.headOfHouseholdCCCD = $head,
+//                         h.registrationNumber = $regNum,
+//                         h.hoKhauSo = $addr,
+//                         h.residencyType = $resType,
+//                         h.registrationDate = date()",
+//                     new { hid = input.HouseholdId, head = input.HeadCccd, regNum = input.RegistrationNumber, addr = input.Address, resType = input.ResidencyType });
+
+//                 if (!string.IsNullOrEmpty(input.HeadCccd))
+//                 {
+//                     await _repo.RunAsync(@"
+//                         MATCH (p:Person {cccd: $head}), (h:Household {householdId: $hid})
+//                         MERGE (p)-[r:CURRENT_RESIDENT]->(h)
+//                         ON CREATE SET 
+//                             r.role = 'Chủ hộ',
+//                             r.relationToHead = 'Bản thân',
+//                             r.fromDate = date()", 
+//                         new { head = input.HeadCccd, hid = input.HouseholdId });
+//                 }
+
+//                 await _logger.LogSuccess(desc, "Family");
+//                 return Ok(new { success = true });
+//             }
+//             catch
+//             {
+//                 await _logger.LogFailed(desc, "Family");
+//                 throw;
+//             }
+//         }
+//         // =========================================================================================
+//         // CRUD OPERATIONS – ĐÃ CHUYỂN SANG DÙNG AdminActionLogger CHUNG
+//         // =========================================================================================
+
+//         [HttpPut("household/{householdId}")]
+//         public async Task<IActionResult> UpdateHousehold(string householdId, [FromBody] HouseholdCreateDto input)
+//         {
+//             var desc = $"Cập nhật hộ khẩu {householdId}";
+//             await _logger.LogProcessing(desc, "Family");
+
+//             try
+//             {
+//                 await _repo.RunAsync(@"
+//                     MATCH (h:Household {householdId: $hid})
+//                     SET h.registrationNumber = $regNum,
+//                         h.hoKhauSo = $addr,
+//                         h.residencyType = $resType,
+//                         h.headOfHouseholdCCCD = $head",
+//                     new
+//                     {
+//                         hid = householdId,
+//                         regNum = input.RegistrationNumber,
+//                         addr = input.Address,
+//                         resType = input.ResidencyType,
+//                         head = input.HeadCccd
+//                     });
+
+//                 await _logger.LogSuccess(desc, "Family");
+//                 return Ok(new { success = true });
+//             }
+//             catch (Exception ex)
+//             {
+//                 await _logger.LogFailed($"{desc} - Lỗi: {ex.Message}", "Family");
+//                 throw;
+//             }
+//         }
+
+//         [HttpDelete("household/{householdId}")]
+//         public async Task<IActionResult> DeleteHousehold(string householdId)
+//         {
+//             var desc = $"Xóa hộ khẩu {householdId}";
+//             await _logger.LogProcessing(desc, "Family");
+
+//             try
+//             {
+//                 await _repo.RunAsync("MATCH (h:Household {householdId: $hid}) DETACH DELETE h", new { hid = householdId });
+//                 await _logger.LogSuccess(desc, "Family");
+//                 return Ok(new { success = true });
+//             }
+//             catch (Exception ex)
+//             {
+//                 await _logger.LogFailed($"{desc} - Lỗi: {ex.Message}", "Family");
+//                 throw;
+//             }
+//         }
+
+//         [HttpPost("household/member")]
+//         public async Task<IActionResult> AddMemberToHousehold([FromBody] AddMemberDto input)
+//         {
+//             var desc = $"Thêm thành viên {input.PersonCccd} vào hộ {input.HouseholdId}";
+//             await _logger.LogProcessing(desc, "Family");
+
+//             try
+//             {
+//                 var result = await _repo.RunAsync(@"
+//                     MATCH (p:Person {cccd: $cccd}), (h:Household {householdId: $hid})
+//                     MERGE (p)-[r:CURRENT_RESIDENT]->(h)
+//                     ON CREATE SET 
+//                         r.role = $role,
+//                         r.relationToHead = $rel,
+//                         r.fromDate = $date
+//                     RETURN r",
+//                     new
+//                     {
+//                         cccd = input.PersonCccd,
+//                         hid = input.HouseholdId,
+//                         role = input.Role,
+//                         rel = input.RelationToHead,
+//                         date = input.FromDate
+//                     });
+
+//                 if (!result.Any())
+//                 {
+//                     await _logger.LogFailed($"{desc} - Không tìm thấy người hoặc hộ khẩu", "Family");
+//                     return NotFound(new { success = false });
+//                 }
+
+//                 await _logger.LogSuccess(desc, "Family");
+//                 return Ok(new { success = true });
+//             }
+//             catch (Exception ex)
+//             {
+//                 await _logger.LogFailed($"{desc} - Lỗi: {ex.Message}", "Family");
+//                 throw;
+//             }
+//         }
+
+//         [HttpPut("household/member-rel")]
+//         public async Task<IActionResult> UpdateMemberRel([FromQuery] string householdId, [FromQuery] string cccd, [FromBody] Dictionary<string, object> props)
+//         {
+//             var desc = $"Cập nhật quan hệ hộ tịch cho {cccd} trong hộ {householdId}";
+//             await _logger.LogProcessing(desc, "Family");
+
+//             try
+//             {
+//                 var safeProps = ConvertDictionary(props);
+//                 await _repo.RunAsync(@"
+//                     MATCH (p:Person {cccd: $cccd})-[r:CURRENT_RESIDENT]->(:Household {householdId: $hid})
+//                     SET r += $props",
+//                     new { cccd, hid = householdId, props = safeProps });
+
+//                 await _logger.LogSuccess(desc, "Family");
+//                 return Ok(new { success = true });
+//             }
+//             catch (Exception ex)
+//             {
+//                 await _logger.LogFailed($"{desc} - Lỗi: {ex.Message}", "Family");
+//                 throw;
+//             }
+//         }
+
+//         [HttpDelete("household/member")]
+//         public async Task<IActionResult> RemoveMemberFromHousehold([FromQuery] string householdId, [FromQuery] string cccd)
+//         {
+//             var desc = $"Xóa thành viên {cccd} khỏi hộ {householdId}";
+//             await _logger.LogProcessing(desc, "Family");
+
+//             try
+//             {
+//                 await _repo.RunAsync(@"
+//                     MATCH (p:Person {cccd: $cccd})-[r:CURRENT_RESIDENT]->(:Household {householdId: $hid})
+//                     DELETE r",
+//                     new { cccd, hid = householdId });
+
+//                 await _logger.LogSuccess(desc, "Family");
+//                 return Ok(new { success = true });
+//             }
+//             catch (Exception ex)
+//             {
+//                 await _logger.LogFailed($"{desc} - Lỗi: {ex.Message}", "Family");
+//                 throw;
+//             }
+//         }
+
+//         [HttpPut("citizen/{cccd}")]
+//         public async Task<IActionResult> UpdateCitizen(string cccd, [FromBody] PersonDto input)
+//         {
+//             var desc = $"Cập nhật thông tin công dân {cccd}";
+//             await _logger.LogProcessing(desc, "Family");
+
+//             try
+//             {
+//                 await _repo.RunAsync(@"
+//                     MATCH (p:Person {cccd: $cccd})
+//                     SET p.hoTen = $name,
+//                         p.ngaySinh = $dob,
+//                         p.gioiTinh = $gender,
+//                         p.queQuan = $hometown,
+//                         p.ngheNghiep = $job,
+//                         p.maritalStatus = $status",
+//                     new
+//                     {
+//                         cccd,
+//                         name = input.HoTen,
+//                         dob = input.NgaySinh,
+//                         gender = input.GioiTinh,
+//                         hometown = input.QueQuan,
+//                         job = input.NgheNghiep,
+//                         status = input.MaritalStatus
+//                     });
+
+//                 await _logger.LogSuccess(desc, "Family");
+//                 return Ok(new { success = true });
+//             }
+//             catch (Exception ex)
+//             {
+//                 await _logger.LogFailed($"{desc} - Lỗi: {ex.Message}", "Family");
+//                 throw;
+//             }
+//         }
+//         // --- HELPERS (Giữ nguyên) ---
+//         private Dictionary<string, object> ConvertDictionary(Dictionary<string, object> input) { var result = new Dictionary<string, object>(); foreach (var kvp in input) { if (kvp.Value is JsonElement jsonElem) { switch (jsonElem.ValueKind) { case JsonValueKind.String: result[kvp.Key] = jsonElem.GetString() ?? ""; break; case JsonValueKind.Number: if(jsonElem.TryGetInt64(out long l)) result[kvp.Key] = l; else if(jsonElem.TryGetDouble(out double d)) result[kvp.Key] = d; break; case JsonValueKind.True: result[kvp.Key] = true; break; case JsonValueKind.False: result[kvp.Key] = false; break; default: result[kvp.Key] = jsonElem.ToString(); break; } } else { result[kvp.Key] = kvp.Value; } } return result; }
+//         private object NormalizeValue(object value) { if (value == null) return null; if (value is LocalDate localDate) return localDate.ToString(); if (value is ZonedDateTime zdt) return zdt.ToString(); if (value is LocalDateTime ldt) return ldt.ToString(); if (value is OffsetTime ot) return ot.ToString(); if (value is LocalTime lt) return lt.ToString(); return value; }
+//         private Dictionary<string, object> NormalizeDictionary(IReadOnlyDictionary<string, object> input) { var result = new Dictionary<string, object>(); foreach (var kvp in input) result[kvp.Key] = NormalizeValue(kvp.Value); return result; }
+//         private IActionResult ProcessGraphResult(IRecord rec) { var nodeList = rec["nodes"].As<List<INode>>(); var nodesDict = new Dictionary<string, PersonDto>(); foreach (var n in nodeList) { if (n==null) continue; bool isHousehold = n.Labels.Contains("Household"); string id = isHousehold ? (GetProp(n.Properties, "householdId") ?? n.Id.ToString()) : (GetProp(n.Properties, "cccd") ?? n.Id.ToString()); if (!nodesDict.ContainsKey(id)) { var dto = MapNodeToDto(n); if(isHousehold) { dto.HoTen = "Hộ khẩu: " + (GetProp(n.Properties, "hoKhauSo") ?? id); dto.GioiTinh = "Household"; } nodesDict[id] = dto; } } var relList = rec["rels"].As<List<IRelationship>>(); var finalLinks = new List<RelationshipDto>(); var neoIdToId = new Dictionary<long, string>(); foreach(var n in nodeList) { if(n==null) continue; bool isHousehold = n.Labels.Contains("Household"); string id = isHousehold ? (GetProp(n.Properties, "householdId") ?? n.Id.ToString()) : (GetProp(n.Properties, "cccd") ?? n.Id.ToString()); neoIdToId[n.Id] = id; } foreach (var r in relList) { if (r == null) continue; if (neoIdToId.ContainsKey(r.StartNodeId) && neoIdToId.ContainsKey(r.EndNodeId)) { finalLinks.Add(new RelationshipDto { Id = r.Id, Source = neoIdToId[r.StartNodeId], Target = neoIdToId[r.EndNodeId], Type = r.Type, Label = TranslateRelType(r.Type), Properties = NormalizeDictionary(r.Properties) }); } } return Ok(new { success = true, data = new { nodes = nodesDict.Values.ToList(), links = finalLinks } }); }
+//         private PersonDto MapNodeToDto(INode node) { var props = node.Properties; return new PersonDto { Id = GetProp(props, "cccd") ?? GetProp(props, "householdId") ?? node.Id.ToString(), HoTen = GetProp(props, "hoTen") ?? "Không tên", NgaySinh = NormalizeValue(GetPropObj(props, "ngaySinh"))?.ToString(), GioiTinh = GetProp(props, "gioiTinh"), QueQuan = GetProp(props, "queQuan"), MaritalStatus = GetProp(props, "maritalStatus"), NgheNghiep = GetProp(props, "ngheNghiep"), Details = NormalizeDictionary(props) }; }
+//         private object? GetPropObj(IReadOnlyDictionary<string, object> props, string key) { if (props.TryGetValue(key, out object? val)) return val; return null; }
+//         private string? GetProp(IReadOnlyDictionary<string, object> props, string key) { if (props.TryGetValue(key, out object? val)) return NormalizeValue(val)?.ToString() ?? ""; return ""; }
+//         private string SafeString(object? val) { return NormalizeValue(val)?.ToString() ?? ""; }
+//         private string TranslateRelType(string type) { return type switch { "FATHER_OF" => "Cha của", "MOTHER_OF" => "Mẹ của", "MARRIED_TO" => "Vợ/Chồng", "CHILD_OF" => "Con của", "SIBLING" => "Anh/Chị/Em", "REGISTERED_AT" => "ĐKTT tại", "CURRENT_RESIDENT" => "Cư trú", _ => type }; }
+//     }
+// }
+
+
+
+
+// using Microsoft.AspNetCore.Mvc;
+// using Neo4j.Driver;
+// using CitizenGraph.Backend.Services;
+// using System.Collections.Generic;
+// using System.Linq;
+// using System.Threading.Tasks;
+// using System;
+// using System.Text.Json;
+
 // namespace CitizenGraph.Backend.Controllers
 // {
 //     // DTOs

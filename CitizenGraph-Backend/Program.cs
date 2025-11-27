@@ -6,6 +6,7 @@ var builder = WebApplication.CreateBuilder(args);
 // 1. Cấu hình Services
 builder.Services.AddSingleton<Neo4jConnection>();
 builder.Services.AddScoped<Neo4jRepository>();
+// builder.Services.AddScoped<AdminActionLogger>();
 
 // Fix lỗi dữ liệu số (Infinity/NaN) và cấu hình JSON
 builder.Services.AddControllers()
