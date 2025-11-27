@@ -9,6 +9,7 @@ namespace CitizenGraph.Backend.Services
         private const string DATABASE_NAME = "quanlycongdanfinal-2025-11-22t05-47-57";
 
         private readonly IDriver _driver;
+        public IDriver Driver => _driver;
         private bool _isConnected = false;
 
         public Neo4jConnection()

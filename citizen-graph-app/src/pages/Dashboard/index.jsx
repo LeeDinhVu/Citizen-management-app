@@ -1,16 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { Row, Col, Card, Statistic, Progress, Table, Tag, Spin, Alert } from 'antd';
-import { ArrowUpOutlined, UserOutlined, HomeOutlined, CarOutlined, AlertOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined } from '@ant-design/icons';
+import { 
+  ArrowUpOutlined, UserOutlined, HomeOutlined, CarOutlined, 
+  AlertOutlined, ClockCircleOutlined, CheckCircleOutlined, 
+  CloseCircleOutlined, SyncOutlined 
+} from '@ant-design/icons';
 import axios from 'axios';
 
 // 1. Import Dayjs và các plugin cần thiết
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import 'dayjs/locale/vi'; // Import ngôn ngữ tiếng Việt
+import customParseFormat from 'dayjs/plugin/customParseFormat'; // QUAN TRỌNG: Để đọc định dạng dd/MM/yyyy
+import 'dayjs/locale/vi'; 
 
 // 2. Cấu hình Dayjs
 dayjs.extend(relativeTime);
-dayjs.locale('vi'); // Thiết lập sử dụng tiếng Việt
+dayjs.extend(customParseFormat); // Kích hoạt plugin parse
+dayjs.locale('vi'); 
 
 const Dashboard = () => {
   const [data, setData] = useState(null);
@@ -26,16 +32,28 @@ const Dashboard = () => {
       render: (text) => <b style={{color: '#1890ff'}}>{text}</b> 
     },
     { 
+      title: 'Module', // Thêm cột Module vì backend có trả về
+      dataIndex: 'module',
+      key: 'module',
+      render: (text) => <Tag>{text || 'Hệ thống'}</Tag>
+    },
+    { 
       title: 'Thời gian', 
       dataIndex: 'time', 
       key: 'time', 
-      render: (text) => (
-        <span style={{ color: '#888', fontSize: '12px' }}>
-          {/* 3. Sử dụng fromNow() để hiển thị thời gian tương đối */}
-          <ClockCircleOutlined style={{marginRight: 5}}/>
-          {dayjs(text).fromNow()} 
-        </span>
-      )
+      render: (text) => {
+        // Backend C# trả về string: "dd/MM/yyyy HH:mm:ss"
+        // Cần parse đúng định dạng này thì fromNow mới chạy đúng
+        const dateObj = dayjs(text, 'DD/MM/YYYY HH:mm:ss');
+        const isValid = dateObj.isValid();
+
+        return (
+          <span style={{ color: '#888', fontSize: '12px' }}>
+            <ClockCircleOutlined style={{marginRight: 5}}/>
+            {isValid ? dateObj.fromNow() : text} 
+          </span>
+        );
+      }
     },
     { 
       title: 'Trạng thái', 
@@ -44,9 +62,13 @@ const Dashboard = () => {
       render: status => {
         let color = 'default';
         let icon = null;
-        if (status === 'Thành công') { color = 'success'; icon = <CheckCircleOutlined />; }
-        else if (status === 'Thất bại') { color = 'error'; icon = <CloseCircleOutlined />; }
-        else if (status === 'Đang xử lý') { color = 'processing'; icon = <SyncOutlined spin />; }
+        // Chuẩn hóa text để so sánh (backend trả về string)
+        const s = status?.toLowerCase() || '';
+        
+        if (s.includes('thành công') || s === 'success') { color = 'success'; icon = <CheckCircleOutlined />; }
+        else if (s.includes('thất bại') || s.includes('lỗi') || s === 'failed') { color = 'error'; icon = <CloseCircleOutlined />; }
+        else if (s.includes('đang xử lý') || s === 'processing') { color = 'processing'; icon = <SyncOutlined spin />; }
+        
         return <Tag icon={icon} color={color}>{status}</Tag>;
       }
     },
@@ -59,6 +81,7 @@ const Dashboard = () => {
         const response = await axios.get('http://localhost:5000/api/dashboard/overview');
         setData(response.data);
         setLoading(false);
+        setError(null); // Clear lỗi nếu fetch thành công
       } catch (err) {
         console.error("Lỗi lấy dữ liệu:", err);
         setError("Không thể kết nối đến server.");
@@ -67,8 +90,8 @@ const Dashboard = () => {
     };
 
     fetchData();
-    // Refresh mỗi 5 giây để cập nhật log và thời gian "cách đây..."
-    const interval = setInterval(fetchData, 5000); 
+    // Refresh mỗi 10 giây để giảm tải server
+    const interval = setInterval(fetchData, 10000); 
     return () => clearInterval(interval);
   }, []);
 
@@ -78,21 +101,30 @@ const Dashboard = () => {
   };
 
   if (loading) return <div style={{ padding: 50, textAlign: 'center' }}><Spin size="large" tip="Đang tải dữ liệu hệ thống..." /></div>;
-  if (error) return <div style={{ padding: 24 }}><Alert message="Lỗi" description={error} type="error" showIcon /></div>;
+  if (error) return <div style={{ padding: 24 }}><Alert message="Lỗi kết nối" description={error} type="error" showIcon /></div>;
 
+  // Lấy dữ liệu an toàn (safe navigation)
   const { statistics, demographics, recentLogs } = data || {};
   
   if (!statistics || !demographics) {
-    return <div style={{ padding: 24 }}><Alert message="Lỗi định dạng dữ liệu" description="Server trả về dữ liệu không khớp cấu trúc mong đợi." type="error" showIcon /></div>;
+    return <div style={{ padding: 24 }}><Alert message="Dữ liệu trống" description="Chưa có dữ liệu thống kê từ server." type="warning" showIcon /></div>;
   }
 
   // Dữ liệu cho bảng Log
+  // Backend trả về mảng các object camelCase: { action, status, module, time }
   const logDataSource = recentLogs ? recentLogs.map((log, index) => ({
       key: index,
       action: log.action,
-      time: log.time, // Chuỗi thời gian ISO từ backend
+      module: log.module,
+      time: log.time, 
       status: log.status
-  })) : [];
+  })).sort((a, b) => {
+      // SỬA: Sắp xếp giảm dần (Mới nhất lên đầu)
+      // Dùng dayjs để parse chuỗi "dd/MM/yyyy HH:mm:ss" thành thời gian để so sánh
+      const dateA = dayjs(a.time, 'DD/MM/YYYY HH:mm:ss');
+      const dateB = dayjs(b.time, 'DD/MM/YYYY HH:mm:ss');
+      return dateB.diff(dateA); 
+  }) : [];
 
   const malePercent = calculatePercent(demographics.maleCount, demographics.totalClassified);
   const femalePercent = calculatePercent(demographics.femaleCount, demographics.totalClassified);
@@ -122,7 +154,7 @@ const Dashboard = () => {
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card bordered={false} style={{ background: '#fff1f0', borderColor: '#ffa39e' }}>
-            <Statistic title="Cảnh báo An ninh (F0/F1)" value={statistics.alerts} prefix={<AlertOutlined />} valueStyle={{ color: '#cf1322' }} suffix={<span style={{fontSize: 12, color: '#cf1322'}}><ArrowUpOutlined /> High Risk</span>} />
+            <Statistic title="Cảnh báo An ninh (F0/F1)" value={statistics.alerts} prefix={<AlertOutlined />} valueStyle={{ color: '#cf1322' }} suffix={<span style={{fontSize: 12, color: '#cf1322'}}><ArrowUpOutlined /> Risk</span>} />
           </Card>
         </Col>
       </Row>
@@ -132,7 +164,7 @@ const Dashboard = () => {
       {/* 2. HÀNG BIỂU ĐỒ VÀ HOẠT ĐỘNG */}
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={10}>
-          <Card title="Thống kê theo Độ tuổi & Giới tính" bordered={false}>
+          <Card title="Thống kê theo Độ tuổi & Giới tính" bordered={false} style={{height: '100%'}}>
             <div style={{ marginBottom: 15 }}><span>Nam giới ({malePercent}%) - {demographics.maleCount} người</span><Progress percent={malePercent} strokeColor="#1890ff" /></div>
             <div style={{ marginBottom: 15 }}><span>Nữ giới ({femalePercent}%) - {demographics.femaleCount} người</span><Progress percent={femalePercent} strokeColor="#eb2f96" /></div>
             <div style={{ marginBottom: 15 }}><span>Độ tuổi lao động (18-60) ({laborPercent}%)</span><Progress percent={laborPercent} status="active" strokeColor="#52c41a" /></div>
@@ -142,13 +174,14 @@ const Dashboard = () => {
 
         {/* Bảng Log Real-time */}
         <Col xs={24} lg={14}>
-          <Card title={<><ClockCircleOutlined /> Lịch sử hoạt động Hệ thống (Real-time)</>} bordered={false}>
+          <Card title={<><ClockCircleOutlined /> Lịch sử hoạt động Hệ thống (Real-time)</>} bordered={false} style={{height: '100%'}}>
              <Table 
                dataSource={logDataSource} 
                columns={columns} 
                pagination={false} 
                size="small"
                locale={{emptyText: 'Chưa có dữ liệu hoạt động'}}
+               scroll={{ y: 240 }} // Thêm scroll nếu danh sách dài
              />
           </Card>
         </Col>

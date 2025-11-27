@@ -5,10 +5,13 @@ import MainLayout from './components/MainLayout';
 // Import các trang (Sau này các bạn code xong trang nào thì import trang đó)
 import Dashboard from './pages/Dashboard';
 import DatabaseConnection from './pages/DatabaseConnection';
+import ResidencyPage from './pages/Residency';
+import CitizensManagement from './pages/CitizensManagement';
 import FamilyGraphPage from './pages/FamilyGraph';
 import AssetManagementPage from './pages/AssetManagement';
-import CitizenPage from './pages/CitizensManagement';
-import CitizensManagement from './pages/CitizensManagement';
+import CasesPage from "./pages/security/Cases";
+import CaseDetail from "./pages/security/CaseDetail";
+import CreateCase from "./pages/security/CreateCase";
 
 // import CitizenPage from './pages/Citizen'; 
 // ...
@@ -26,10 +29,16 @@ const App = () => {
           
           <Route path="database" element={<DatabaseConnection />} />
           <Route path="citizens" element={<CitizensManagement />} />
-          <Route path="residency" element={<Placeholder title="Quản lý cư trú" />} />
+          <Route path="residency" element={<ResidencyPage />} />
           <Route path="family" element={<FamilyGraphPage />} />
           <Route path="assets" element={<AssetManagementPage />} />
-          <Route path="security" element={<Placeholder title="An ninh" />} />
+          <Route path="security">
+            <Route index element={<CasesPage />} />
+            <Route path="cases" element={<CasesPage />} />
+            <Route path="cases/create" element={<CreateCase />} />   {/* ĐÃ SỬA */}
+            <Route path="cases/:id" element={<CaseDetail />} />
+          </Route>
+          {/* <Route path="security" element={<Placeholder title="An ninh" />} /> */}
           <Route path="health" element={<Placeholder title="Y tế" />} />
           <Route path="trace" element={<Placeholder title="Truy vết Graph" />} />
           

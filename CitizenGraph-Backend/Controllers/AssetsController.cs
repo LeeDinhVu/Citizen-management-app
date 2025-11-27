@@ -11,52 +11,67 @@ namespace CitizenGraph.Backend.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class AssetsController : ControllerBase
+public class AssetsController : ControllerBase
     {
         private readonly Neo4jRepository _repository;
+        private readonly AdminActionLogger _logger; // DÙNG CHUNG LOGGER
 
-        public AssetsController(Neo4jRepository repository)
+        public AssetsController(Neo4jRepository repository, AdminActionLogger logger)
         {
             _repository = repository;
+            _logger = logger;
         }
 
         // =========================================================================================
-        // 1. DASHBOARD – SỬA LỖI SUM() + TRẢ VỀ TRƯỜNG CHUẨN CHỮ HOA ĐẦU
+        // 1. DASHBOARD – ĐÃ SỬA LỖI SUM() + TRẢ VỀ TRƯỜNG ĐÚNG + DÙNG LOGGER
         // =========================================================================================
         [HttpGet("dashboard")]
         public async Task<IActionResult> GetOwnershipDashboard()
         {
-            var statsQuery = @"
-                MATCH (re:RealEstate) 
-                WITH count(re) AS CountRE, sum(toFloat(re.valueVND)) AS ValRE
-                MATCH (v:Vehicle) 
-                WITH CountRE, ValRE, count(v) AS CountVeh, sum(toFloat(v.valueVND)) AS ValVeh
-                MATCH (b:Business) 
-                WITH CountRE, ValRE, CountVeh, ValVeh, count(b) AS CountBiz, sum(toFloat(b.registeredCapital)) AS ValBiz
-                RETURN 
-                    { RealEstate: { Count: CountRE, Value: ValRE } },
-                    { Vehicle:    { Count: CountVeh, Value: ValVeh } },
-                    { Business:   { Count: CountBiz, Value: ValBiz } } AS Statistics";
-
-            var listQuery = @"
-                MATCH (p:Person)
-                OPTIONAL MATCH (p)-[:OWNS]->(re:RealEstate)
-                OPTIONAL MATCH (p)-[:OWNS_VEHICLE]->(v:Vehicle)
-                OPTIONAL MATCH (p)-[:OWNS_BUSINESS]->(b:Business)
-                WHERE re IS NOT NULL OR v IS NOT NULL OR b IS NOT NULL
-                RETURN p.cccd AS cccd,
-                       p.hoTen AS hoTen,
-                       count(DISTINCT re) AS soLuongBDS,
-                       count(DISTINCT v)  AS soLuongXe,
-                       count(DISTINCT b)  AS soLuongDN,
-                       toFloat(sum(COALESCE(toFloat(re.valueVND),0)) + 
-                               COALESCE(toFloat(v.valueVND),0) + 
-                               COALESCE(toFloat(b.registeredCapital),0)) AS tongGiaTri
-                ORDER BY tongGiaTri DESC
-                LIMIT 100";
+            const string action = "Xem Dashboard Tài sản & Sở hữu";
+            await _logger.LogProcessing(action, "Assets");
 
             try
             {
+                var statsQuery = @"
+                    MATCH (re:RealEstate) 
+                    WITH count(re) AS CountRE, sum(toFloat(re.valueVND)) AS ValRE
+                    MATCH (v:Vehicle) 
+                    WITH CountRE, ValRE, count(v) AS CountVeh, sum(toFloat(v.valueVND)) AS ValVeh
+                    MATCH (b:Business) 
+                    WITH CountRE, ValRE, CountVeh, ValVeh, count(b) AS CountBiz, sum(toFloat(b.registeredCapital)) AS ValBiz
+                    RETURN CountRE, ValRE, CountVeh, ValVeh, CountBiz, ValBiz";
+
+                var listQuery = @"
+                    MATCH (p:Person)
+                    OPTIONAL MATCH (p)-[:OWNS]->(re:RealEstate)
+                    OPTIONAL MATCH (p)-[:OWNS_VEHICLE]->(v:Vehicle)
+                    OPTIONAL MATCH (p)-[:OWNS_BUSINESS]->(b:Business)
+                    WITH p,
+                         collect(DISTINCT re) AS res,
+                         collect(DISTINCT v) AS ves,
+                         collect(DISTINCT b) AS bus
+                    WITH p,
+                         res,
+                         ves,
+                         bus,
+                         size(res) AS soLuongBDS,
+                         size(ves) AS soLuongXe,
+                         size(bus) AS soLuongDN,
+                         reduce(total = 0.0, x IN res | total + COALESCE(toFloat(x.valueVND), 0)) +
+                         reduce(total = 0.0, x IN ves | total + COALESCE(toFloat(x.valueVND), 0)) +
+                         reduce(total = 0.0, x IN bus | total + COALESCE(toFloat(x.registeredCapital), 0)) AS tongGiaTri
+                    WHERE soLuongBDS > 0 OR soLuongXe > 0 OR soLuongDN > 0
+                    RETURN 
+                        p.cccd AS cccd,
+                        p.hoTen AS hoTen,
+                        soLuongBDS,
+                        soLuongXe,
+                        soLuongDN,
+                        tongGiaTri
+                    ORDER BY tongGiaTri DESC
+                    LIMIT 100";
+
                 var statsTask = _repository.RunAsync(statsQuery);
                 var listTask = _repository.RunAsync(listQuery);
                 await Task.WhenAll(statsTask, listTask);
@@ -64,7 +79,6 @@ namespace CitizenGraph.Backend.Controllers
                 var statsRec = statsTask.Result.FirstOrDefault();
                 var ownersResult = listTask.Result;
 
-                // Xử lý stats – trả về đúng tên trường chữ hoa đầu
                 var statistics = statsRec != null
                     ? new
                     {
@@ -89,6 +103,8 @@ namespace CitizenGraph.Backend.Controllers
                     tongGiaTri = r["tongGiaTri"].As<double>()
                 }).ToList();
 
+                await _logger.LogSuccess(action, "Assets");
+
                 return Ok(new
                 {
                     statistics,
@@ -97,6 +113,7 @@ namespace CitizenGraph.Backend.Controllers
             }
             catch (Exception ex)
             {
+                await _logger.LogFailed($"{action} - Lỗi: {ex.Message}", "Assets");
                 return StatusCode(500, new { message = "Lỗi tải dashboard", error = ex.Message });
             }
         }
@@ -107,22 +124,31 @@ namespace CitizenGraph.Backend.Controllers
         [HttpGet("detail/{cccd}")]
         public async Task<IActionResult> GetOwnerDetail(string cccd)
         {
-            var query = @"
-                MATCH (p:Person {cccd: $cccd})
-                OPTIONAL MATCH (p)-[:OWNS]->(re:RealEstate)
-                OPTIONAL MATCH (p)-[:OWNS_VEHICLE]->(v:Vehicle)
-                OPTIONAL MATCH (p)-[:OWNS_BUSINESS]->(b:Business)
-                RETURN p,
-                       collect(DISTINCT re) AS realEstates,
-                       collect(DISTINCT v)  AS vehicles,
-                       collect(DISTINCT b)  AS businesses";
+            var action = $"Xem chi tiết sở hữu công dân CCCD: {cccd}";
+            await _logger.LogProcessing(action, "Assets");
 
             try
             {
+                var query = @"
+                    MATCH (p:Person {cccd: $cccd})
+                    OPTIONAL MATCH (p)-[:OWNS]->(re:RealEstate)
+                    OPTIONAL MATCH (p)-[:OWNS_VEHICLE]->(v:Vehicle)
+                    OPTIONAL MATCH (p)-[:OWNS_BUSINESS]->(b:Business)
+                    RETURN p,
+                           collect(DISTINCT re) AS realEstates,
+                           collect(DISTINCT v)  AS vehicles,
+                           collect(DISTINCT b)  AS businesses";
+
                 var result = await _repository.RunAsync(query, new { cccd });
-                if (!result.Any()) return NotFound("Không tìm thấy người này");
+                if (!result.Any())
+                {
+                    await _logger.LogFailed($"{action} - Không tìm thấy", "Assets");
+                    return NotFound("Không tìm thấy người này");
+                }
 
                 var r = result.First();
+                await _logger.LogSuccess(action, "Assets");
+
                 return Ok(new
                 {
                     person = NormalizeDictionary(r["p"].As<INode>().Properties),
@@ -130,50 +156,79 @@ namespace CitizenGraph.Backend.Controllers
                     vehicles = r["vehicles"].As<List<INode>>().Select(n => NormalizeDictionary(n.Properties)),
                     businesses = r["businesses"].As<List<INode>>().Select(n => NormalizeDictionary(n.Properties))
                 });
+
             }
             catch (Exception ex)
             {
+                await _logger.LogFailed($"{action} - Lỗi: {ex.Message}", "Assets");
                 return StatusCode(500, ex.Message);
             }
         }
 
         // =========================================================================================
-        // 3. QUẢN LÝ TÀI SẢN
+        // 3. QUẢN LÝ TÀI SẢN (CRUD)
         // =========================================================================================
         [HttpGet("assets/{type}")]
         public async Task<IActionResult> GetAllAssetsByType(string type)
         {
+            var action = $"Xem danh sách tài sản loại: {type}";
+            await _logger.LogProcessing(action, "Assets");
+
             var label = ValidateType(type);
             if (label == null) return BadRequest("Loại tài sản không hợp lệ");
 
             var query = $"MATCH (n:{label}) RETURN n ORDER BY n.createdDate DESC LIMIT 200";
-            var result = await _repository.RunAsync(query);
-            return Ok(result.Select(r => NormalizeDictionary(r["n"].As<INode>().Properties)));
+            try
+            {
+                var result = await _repository.RunAsync(query);
+                await _logger.LogSuccess(action, "Assets");
+                return Ok(result.Select(r => NormalizeDictionary(r["n"].As<INode>().Properties)));
+            }
+            catch (Exception ex)
+            {
+                await _logger.LogFailed($"{action} - Lỗi: {ex.Message}", "Assets");
+                return StatusCode(500, ex.Message);
+            }
         }
 
         [HttpPost("assets/{type}")]
         public async Task<IActionResult> CreateAsset(string type, [FromBody] Dictionary<string, object> properties)
         {
+            var action = $"Tạo tài sản mới loại: {type}";
+            await _logger.LogProcessing(action, "Assets");
+
             var label = ValidateType(type);
             if (label == null) return BadRequest("Loại tài sản không hợp lệ");
 
             var cleanProps = ConvertDictionary(properties);
             var idField = GetIdField(type);
             if (!cleanProps.ContainsKey(idField))
-                cleanProps[idField] = Guid.NewGuid().ToString("N")[..8].ToUpper();
+                cleanProps[idField] = Guid.NewGuid().ToString("N").Substring(0, 8).ToUpper();
 
             cleanProps["createdDate"] = DateTime.Now.ToString("yyyy-MM-dd");
 
             var setClause = string.Join(", ", cleanProps.Keys.Select(k => $"n.{k} = ${k}"));
             var query = $"CREATE (n:{label}) SET {setClause} RETURN n";
 
-            var result = await _repository.RunAsync(query, cleanProps);
-            return Ok(new { message = "Tạo tài sản thành công", data = NormalizeDictionary(result.First()["n"].As<INode>().Properties) });
+            try
+            {
+                var result = await _repository.RunAsync(query, cleanProps);
+                await _logger.LogSuccess(action, "Assets");
+                return Ok(new { message = "Tạo tài sản thành công", data = NormalizeDictionary(result.First()["n"].As<INode>().Properties) });
+            }
+            catch (Exception ex)
+            {
+                await _logger.LogFailed($"{action} - Lỗi: {ex.Message}", "Assets");
+                return StatusCode(500, ex.Message);
+            }
         }
 
         [HttpPut("assets/{type}/{id}")]
         public async Task<IActionResult> UpdateAsset(string type, string id, [FromBody] Dictionary<string, object> properties)
         {
+            var action = $"Cập nhật tài sản ID: {id} loại: {type}";
+            await _logger.LogProcessing(action, "Assets");
+
             var label = ValidateType(type);
             var idField = GetIdField(type);
             if (label == null) return BadRequest("Loại tài sản không hợp lệ");
@@ -184,22 +239,47 @@ namespace CitizenGraph.Backend.Controllers
             var setClause = string.Join(", ", cleanProps.Keys.Where(k => k != "targetId").Select(k => $"n.{k} = ${k}"));
             var query = $"MATCH (n:{label} {{{idField}: $targetId}}) SET {setClause} RETURN n";
 
-            var result = await _repository.RunAsync(query, cleanProps);
-            if (!result.Any()) return NotFound("Không tìm thấy tài sản");
+            try
+            {
+                var result = await _repository.RunAsync(query, cleanProps);
+                if (!result.Any())
+                {
+                    await _logger.LogFailed($"{action} - Không tìm thấy", "Assets");
+                    return NotFound("Không tìm thấy tài sản");
+                }
 
-            return Ok(new { message = "Cập nhật thành công", data = NormalizeDictionary(result.First()["n"].As<INode>().Properties) });
+                await _logger.LogSuccess(action, "Assets");
+                return Ok(new { message = "Cập nhật thành công", data = NormalizeDictionary(result.First()["n"].As<INode>().Properties) });
+            }
+            catch (Exception ex)
+            {
+                await _logger.LogFailed($"{action} - Lỗi: {ex.Message}", "Assets");
+                return StatusCode(500, ex.Message);
+            }
         }
 
         [HttpDelete("assets/{type}/{id}")]
         public async Task<IActionResult> DeleteAsset(string type, string id)
         {
+            var action = $"Xóa tài sản ID: {id} loại: {type}";
+            await _logger.LogProcessing(action, "Assets");
+
             var label = ValidateType(type);
             var idField = GetIdField(type);
             if (label == null) return BadRequest("Loại tài sản không hợp lệ");
 
             var query = $"MATCH (n:{label} {{{idField}: $id}}) DETACH DELETE n";
-            await _repository.RunAsync(query, new { id });
-            return Ok(new { message = "Đã xóa tài sản và liên kết sở hữu" });
+            try
+            {
+                await _repository.RunAsync(query, new { id });
+                await _logger.LogSuccess(action, "Assets");
+                return Ok(new { message = "Đã xóa tài sản và liên kết sở hữu" });
+            }
+            catch (Exception ex)
+            {
+                await _logger.LogFailed($"{action} - Lỗi: {ex.Message}", "Assets");
+                return StatusCode(500, ex.Message);
+            }
         }
 
         // =========================================================================================
@@ -208,6 +288,9 @@ namespace CitizenGraph.Backend.Controllers
         [HttpPost("ownership/assign")]
         public async Task<IActionResult> AssignOwnership([FromBody] AssignRequest req)
         {
+            var action = $"Gán quyền sở hữu {req.AssetType} {req.assetId} cho CCCD: {req.cccd}";
+            await _logger.LogProcessing(action, "Assets");
+
             var label = ValidateType(req.AssetType);
             var idField = GetIdField(req.AssetType);
             var relType = GetRelType(req.AssetType);
@@ -221,15 +304,31 @@ namespace CitizenGraph.Backend.Controllers
                 ON MATCH  SET r.assignedDate = date()
                 RETURN r";
 
-            var result = await _repository.RunAsync(query, new { req.cccd, req.assetId });
-            if (!result.Any()) return BadRequest("Không tìm thấy công dân hoặc tài sản");
+            try
+            {
+                var result = await _repository.RunAsync(query, new { req.cccd, req.assetId });
+                if (!result.Any())
+                {
+                    await _logger.LogFailed($"{action} - Không tìm thấy", "Assets");
+                    return BadRequest("Không tìm thấy công dân hoặc tài sản");
+                }
 
-            return Ok(new { message = $"Đã gán {label} cho {req.cccd}" });
+                await _logger.LogSuccess(action, "Assets");
+                return Ok(new { message = $"Đã gán {label} cho {req.cccd}" });
+            }
+            catch (Exception ex)
+            {
+                await _logger.LogFailed($"{action} - Lỗi: {ex.Message}", "Assets");
+                return StatusCode(500, ex.Message);
+            }
         }
 
         [HttpPost("ownership/unassign")]
         public async Task<IActionResult> UnassignOwnership([FromBody] AssignRequest req)
         {
+            var action = $"Gỡ quyền sở hữu {req.AssetType} {req.assetId} khỏi CCCD: {req.cccd}";
+            await _logger.LogProcessing(action, "Assets");
+
             var label = ValidateType(req.AssetType);
             var idField = GetIdField(req.AssetType);
             var relType = GetRelType(req.AssetType);
@@ -239,15 +338,24 @@ namespace CitizenGraph.Backend.Controllers
                 MATCH (p:Person {{cccd: $cccd}})-[r:{relType}]->(a:{label} {{{idField}: $assetId}})
                 DELETE r";
 
-            await _repository.RunAsync(query, new { req.cccd, req.assetId });
-            return Ok(new { message = "Đã gỡ quyền sở hữu" });
+            try
+            {
+                await _repository.RunAsync(query, new { req.cccd, req.assetId });
+                await _logger.LogSuccess(action, "Assets");
+                return Ok(new { message = "Đã gỡ quyền sở hữu" });
+            }
+            catch (Exception ex)
+            {
+                await _logger.LogFailed($"{action} - Lỗi: {ex.Message}", "Assets");
+                return StatusCode(500, ex.Message);
+            }
         }
 
         // =========================================================================================
         // HELPER FUNCTIONS (ĐÃ CẬP NHẬT)
         // =========================================================================================
 
-private string? ValidateType(string? type) => type?.ToLower() switch
+        private string? ValidateType(string? type) => type?.ToLower() switch
         {
             "realestate" => "RealEstate",
             "vehicle"    => "Vehicle",

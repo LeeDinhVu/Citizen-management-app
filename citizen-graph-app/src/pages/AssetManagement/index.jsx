@@ -15,22 +15,29 @@ import axios from 'axios';
 const { Title } = Typography;
 const { Option } = Select;
 
-const API_URL = 'http://localhost:5000/api/assets'; // Đúng với route đã sửa
+// Đảm bảo port 5000 là đúng port backend của bạn
+const API_ASSETS = 'http://localhost:5000/api/assets'; 
 
 const AssetManagementPage = () => {
   const [stats, setStats] = useState(null);
   const [owners, setOwners] = useState([]);
   const [assets, setAssets] = useState([]);
+  
+  // State mặc định
   const [activeAssetType, setActiveAssetType] = useState('RealEstate');
   const [ownershipAssetType, setOwnershipAssetType] = useState('RealEstate');
+  
   const [dropdownAssets, setDropdownAssets] = useState([]);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
   const [loadingAssets, setLoadingAssets] = useState(false);
+  
   const [assetModalVisible, setAssetModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
+  
   const [selectedOwner, setSelectedOwner] = useState(null);
   const [editingAsset, setEditingAsset] = useState(null);
   const [searchText, setSearchText] = useState('');
+  
   const [formAsset] = Form.useForm();
   const [formAssign] = Form.useForm();
 
@@ -53,12 +60,14 @@ const AssetManagementPage = () => {
   const fetchDashboard = async () => {
     setLoadingDashboard(true);
     try {
-      const res = await axios.get(`${API_URL}/dashboard`);
+      const res = await axios.get(`${API_ASSETS}/dashboard`);
       if (res.data) {
+        // Lưu ý: JSON trả về thường là camelCase (realEstate, vehicle...)
         setStats(res.data.statistics);
         setOwners(res.data.ownersGrid || []);
       }
     } catch (err) {
+      console.error(err);
       notification.error({ message: 'Lỗi', description: 'Không thể tải Dashboard' });
     } finally {
       setLoadingDashboard(false);
@@ -68,7 +77,7 @@ const AssetManagementPage = () => {
   const fetchAssets = async () => {
     setLoadingAssets(true);
     try {
-      const res = await axios.get(`${API_URL}/assets/${activeAssetType}`);
+      const res = await axios.get(`${API_ASSETS}/assets/${activeAssetType}`);
       setAssets(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       notification.error({ message: 'Lỗi tải danh sách tài sản' });
@@ -80,7 +89,7 @@ const AssetManagementPage = () => {
 
   const fetchDropdownAssets = async () => {
     try {
-      const res = await axios.get(`${API_URL}/assets/${ownershipAssetType}`);
+      const res = await axios.get(`${API_ASSETS}/assets/${ownershipAssetType}`);
       setDropdownAssets(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       setDropdownAssets([]);
@@ -89,7 +98,7 @@ const AssetManagementPage = () => {
 
   const viewOwnerDetail = async (cccd) => {
     try {
-      const res = await axios.get(`${API_URL}/detail/${cccd}`);
+      const res = await axios.get(`${API_ASSETS}/detail/${cccd}`);
       setSelectedOwner(res.data);
       setDetailModalVisible(true);
     } catch (err) {
@@ -116,17 +125,17 @@ const AssetManagementPage = () => {
       if (editingAsset) {
         const idField = activeAssetType === 'RealEstate' ? 'assetId' : activeAssetType === 'Vehicle' ? 'vehicleId' : 'businessId';
         const id = editingAsset[idField];
-        await axios.put(`${API_URL}/assets/${activeAssetType}/${id}`, values);
+        await axios.put(`${API_ASSETS}/assets/${activeAssetType}/${id}`, values);
         notification.success({ message: 'Thành công', description: 'Cập nhật tài sản thành công' });
       } else {
-        await axios.post(`${API_URL}/assets/${activeAssetType}`, values);
+        await axios.post(`${API_ASSETS}/assets/${activeAssetType}`, values);
         notification.success({ message: 'Thành công', description: 'Tạo tài sản mới thành công' });
       }
       setAssetModalVisible(false);
       fetchAssets();
       fetchDashboard();
-      fetchDropdownAssets(); // Refresh cả dropdown
-    } catch (err) {
+      fetchDropdownAssets();
+    } catch (err) { 
       notification.error({ message: 'Lỗi', description: err.response?.data?.message || err.message });
     }
   };
@@ -134,11 +143,11 @@ const AssetManagementPage = () => {
   const handleDeleteAsset = async (record) => {
     const id = record.assetId || record.vehicleId || record.businessId;
     try {
-      await axios.delete(`${API_URL}/assets/${activeAssetType}/${id}`);
+      await axios.delete(`${API_ASSETS}/assets/${activeAssetType}/${id}`);
       notification.success({ message: 'Thành công', description: 'Đã xóa tài sản' });
       fetchAssets();
       fetchDashboard();
-      fetchDropdownAssets(); // Refresh cả dropdown
+      fetchDropdownAssets();
     } catch (err) {
       notification.error({ message: 'Lỗi', description: 'Xóa thất bại' });
     }
@@ -147,7 +156,7 @@ const AssetManagementPage = () => {
   const handleAssignOwnership = async () => {
     try {
       const values = await formAssign.validateFields();
-      await axios.post(`${API_URL}/ownership/assign`, values);
+      await axios.post(`${API_ASSETS}/ownership/assign`, values);
       notification.success({ message: 'Thành công', description: 'Gán quyền sở hữu thành công' });
       formAssign.resetFields(); 
       fetchDashboard(); 
@@ -159,7 +168,7 @@ const AssetManagementPage = () => {
   const handleUnassignOwnership = async () => {
     try {
       const values = await formAssign.validateFields();
-      await axios.post(`${API_URL}/ownership/unassign`, values);
+      await axios.post(`${API_ASSETS}/ownership/unassign`, values);
       notification.success({ message: 'Thành công', description: 'Đã gỡ quyền sở hữu' });
       fetchDashboard();
     } catch (err) {
@@ -168,7 +177,9 @@ const AssetManagementPage = () => {
   };
 
   // --- RENDER FUNCTIONS ---
-const renderDashboard = () => {
+  const renderDashboard = () => {
+    // SỬA: Chuyển các key truy cập sang camelCase để khớp với JSON chuẩn trả về từ C#
+    // Ví dụ: stats.realEstate.count thay vì stats.RealEstate.Count
     return (
       <div>
       {stats && (
@@ -177,10 +188,11 @@ const renderDashboard = () => {
             <Card>
               <Statistic
                 title="Bất động sản"
-                value={stats.RealEstate?.Count || 0}
+                // Sửa ở đây: realEstate, count, value
+                value={stats.realEstate?.count || 0}
                 prefix={<ApartmentOutlined />}
                 valueStyle={{ color: '#722ed1' }}
-                suffix={<small>({new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.RealEstate?.Value || 0)})</small>}
+                suffix={<small>({new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.realEstate?.value || 0)})</small>}
               />
             </Card>
           </Col>
@@ -188,10 +200,11 @@ const renderDashboard = () => {
             <Card>
               <Statistic
                 title="Phương tiện"
-                value={stats.Vehicle?.Count || 0}
+                // Sửa ở đây: vehicle, count, value
+                value={stats.vehicle?.count || 0}
                 prefix={<CarOutlined />}
                 valueStyle={{ color: '#08979c' }}
-                suffix={<small>({new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.Vehicle?.Value || 0)})</small>}
+                suffix={<small>({new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.vehicle?.value || 0)})</small>}
               />
             </Card>
           </Col>
@@ -199,10 +212,11 @@ const renderDashboard = () => {
             <Card>
               <Statistic
                 title="Doanh nghiệp"
-                value={stats.Business?.Count || 0}
+                // Sửa ở đây: business, count, value
+                value={stats.business?.count || 0}
                 prefix={<ShopOutlined />}
                 valueStyle={{ color: '#d4380d' }}
-                suffix={<small>({new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.Business?.Value || 0)})</small>}
+                suffix={<small>({new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.business?.value || 0)})</small>}
               />
             </Card>
           </Col>

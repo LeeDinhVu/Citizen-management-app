@@ -1,12 +1,19 @@
 using CitizenGraph.Backend.Services;
 using System.Text.Json.Serialization;
+using Neo4j.Driver;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // 1. Cấu hình Services
+builder.Services.AddSingleton<IDriver>(sp => 
+    GraphDatabase.Driver("bolt://127.0.0.1:7687", AuthTokens.Basic("neo4j", "quanlycongdan")));
 builder.Services.AddSingleton<Neo4jConnection>();
 builder.Services.AddScoped<Neo4jRepository>();
-// builder.Services.AddScoped<AdminActionLogger>();
+builder.Services.AddScoped<AdminActionLogger>();
+builder.Services.AddScoped<ResidencyService>();
+builder.Services.AddScoped<ICriminalRecordService, CriminalRecordService>();
+builder.Services.AddScoped<CriminalCaseService>();
+builder.Services.AddScoped<Neo4jRepository1>();
 
 // Fix lỗi dữ liệu số (Infinity/NaN) và cấu hình JSON
 builder.Services.AddControllers()

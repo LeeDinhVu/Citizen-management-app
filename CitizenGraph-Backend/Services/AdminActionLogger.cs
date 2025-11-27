@@ -1,4 +1,92 @@
-// // File: Services/AdminActionLogger.cs
+// File: Services/AdminActionLogger.cs
+using Neo4j.Driver;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+
+namespace CitizenGraph.Backend.Services
+{
+    public class AdminActionLogger
+    {
+        private readonly Neo4jRepository _repo;
+
+        public AdminActionLogger(Neo4jRepository repo)
+        {
+            _repo = repo;
+        }
+
+        public async Task LogAsync(string action, string status, string module = "Unknown", string? userId = null)
+        {
+            // [DEBUG 1] Báo hiệu bắt đầu hàm
+            Console.WriteLine($"[LOGGER START] >>> Đang chuẩn bị ghi log: {action} | Module: {module}");
+
+            try
+            {
+                // Thêm RETURN id(l) để ép truy vấn trả về dữ liệu
+                var query = @"
+                    CREATE (l:AdminLog {
+                        action: $action,
+                        status: $status,
+                        module: $module,
+                        userId: $userId,
+                        timestamp: datetime({timezone: '+07:00'}), 
+                        dateStr: date({timezone: '+07:00'})
+                    })
+                    RETURN id(l) as NewId";
+
+                var parameters = new Dictionary<string, object>
+                {
+                    { "action", action },
+                    { "status", status },
+                    { "module", module },
+                    { "userId", userId ?? "SYSTEM" }
+                };
+
+                // Gọi Repository
+                var result = await _repo.RunAsync(query, parameters);
+
+                // [DEBUG 2] Kiểm tra kết quả trả về
+                if (result != null)
+                {
+                    // QUAN TRỌNG: Phải đọc dữ liệu ra thì lệnh mới thực thi hoàn toàn
+                    var record = result.FirstOrDefault();
+                    
+                    if (record != null)
+                    {
+                        Console.WriteLine($"[LOGGER SUCCESS] >>> Đã ghi thành công! Node ID: {record["NewId"]}");
+                    }
+                    else
+                    {
+                        Console.WriteLine("[LOGGER WARNING] >>> Query chạy không lỗi nhưng không trả về ID nào (Có thể chưa tạo được Node).");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("[LOGGER ERROR] >>> Result từ Repository bị NULL.");
+                }
+            }
+            catch (Exception ex)
+            {
+                // [DEBUG 3] Bắt lỗi chi tiết nếu có
+                Console.WriteLine($"[LOGGER EXCEPTION] >>> LỖI NGHIÊM TRỌNG: {ex.Message}");
+                Console.WriteLine($"[STACK TRACE]: {ex.StackTrace}");
+            }
+        }
+
+        // Các overload tiện lợi
+        public Task LogSuccess(string action, string module = "Unknown", string? userId = null)
+            => LogAsync(action, "Thành công", module, userId);
+
+        public Task LogProcessing(string action, string module = "Unknown", string? userId = null)
+            => LogAsync(action, "Đang xử lý", module, userId);
+
+        public Task LogFailed(string action, string module = "Unknown", string? userId = null)
+            => LogAsync(action, "Thất bại", module, userId);
+    }
+}
+
+
 // using Neo4j.Driver;
 // using System;
 // using System.Threading.Tasks;
