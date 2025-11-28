@@ -105,8 +105,8 @@ const FamilyGraphPage = () => {
           <Button icon={<RedoOutlined />} onClick={fetchData}>Làm mới dữ liệu</Button>
       </div>
       <div style={{ background: '#fff', padding: 24, borderRadius: 8 }}>
-        <Tabs defaultActiveKey="1" items={[
-            { key: '1', label: <span><HomeOutlined /> Hộ Khẩu</span>, children: renderDashboard() },
+        <Tabs defaultActiveKey="2" items={[
+            // { key: '1', label: <span><HomeOutlined /> Hộ Khẩu</span>, children: renderDashboard() },
             { key: '2', label: <span><PartitionOutlined /> Tra cứu Phả Hệ</span>, children: renderGenealogy() },
             { key: '3', label: <span><GlobalOutlined /> Toàn cảnh</span>, children: <div style={{height: '75vh'}}><FamilyTreeViz graphData={globalData} loading={loadingGlobal} rootId={null} onNodeClick={handleNodeClick} onLinkClick={handleLinkClick} /></div> }
         ]} size="large" onChange={(k)=>k==='3'&&fetchGlobalGraph()} />

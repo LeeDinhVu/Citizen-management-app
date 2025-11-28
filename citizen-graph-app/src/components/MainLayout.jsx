@@ -64,7 +64,7 @@ const MainLayout = () => {
           <Dropdown overlay={userMenu} trigger={['click']}>
             <Space style={{ cursor: 'pointer' }}>
               <Avatar style={{ backgroundColor: '#87d068' }} icon={<UserOutlined />} />
-              <span style={{ fontWeight: 500 }}>Admin Group 5</span>
+              <span style={{ fontWeight: 500 }}>Admin Group 14</span>
               <DownOutlined style={{ fontSize: '12px' }} />
             </Space>
           </Dropdown>
@@ -78,7 +78,7 @@ const MainLayout = () => {
         </Content>
 
         <Footer style={{ textAlign: 'center', color: '#888' }}>
-          CitizenGraph ©2025 Created by Group 5 using Neo4j & React
+          CitizenGraph ©2025 Created by Group 14 using Neo4j & React
         </Footer>
       </Layout>
     </Layout>

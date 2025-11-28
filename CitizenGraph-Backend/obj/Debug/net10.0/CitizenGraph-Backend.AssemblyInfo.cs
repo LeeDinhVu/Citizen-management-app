@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CitizenGraph-Backend")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ab63a950497e0bc448fbd4dcda1d3e5150f56289")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5633618d0ff35c52cb4cf983756b499f4b98663b")]
 [assembly: System.Reflection.AssemblyProductAttribute("CitizenGraph-Backend")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CitizenGraph-Backend")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -8,12 +8,14 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IDriver>(sp => 
     GraphDatabase.Driver("bolt://127.0.0.1:7687", AuthTokens.Basic("neo4j", "quanlycongdan")));
 builder.Services.AddSingleton<Neo4jConnection>();
+builder.Services.AddScoped<Neo4jService>();
 builder.Services.AddScoped<Neo4jRepository>();
 builder.Services.AddScoped<AdminActionLogger>();
 builder.Services.AddScoped<ResidencyService>();
 builder.Services.AddScoped<ICriminalRecordService, CriminalRecordService>();
 builder.Services.AddScoped<CriminalCaseService>();
 builder.Services.AddScoped<Neo4jRepository1>();
+builder.Services.AddScoped<TraceService>();
 
 // Fix lỗi dữ liệu số (Infinity/NaN) và cấu hình JSON
 builder.Services.AddControllers()

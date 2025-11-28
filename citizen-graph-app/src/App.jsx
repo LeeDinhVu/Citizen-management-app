@@ -12,6 +12,8 @@ import AssetManagementPage from './pages/AssetManagement';
 import CasesPage from "./pages/security/Cases";
 import CaseDetail from "./pages/security/CaseDetail";
 import CreateCase from "./pages/security/CreateCase";
+import TracePage from './pages/TraceManagement';
+import MedicalPage from './pages/Medical';
 
 // import CitizenPage from './pages/Citizen'; 
 // ...
@@ -39,8 +41,8 @@ const App = () => {
             <Route path="cases/:id" element={<CaseDetail />} />
           </Route>
           {/* <Route path="security" element={<Placeholder title="An ninh" />} /> */}
-          <Route path="health" element={<Placeholder title="Y tế" />} />
-          <Route path="trace" element={<Placeholder title="Truy vết Graph" />} />
+          <Route path="health" element={<MedicalPage />} />
+          <Route path="trace" element={<TracePage />} />
           
           {/* Trang 404 */}
           <Route path="*" element={<h2>404 - Không tìm thấy trang</h2>} />
