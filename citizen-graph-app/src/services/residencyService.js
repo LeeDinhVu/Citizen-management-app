@@ -9,7 +9,9 @@ const residencyService = {
    */
   getAllHouseholds: async () => {
     try {
-      const response = await axios.get(`${API_URL}/residency/households`);
+      const response = await axios.get(`${API_URL}/residency/households`, {
+        headers: { 'Cache-Control': 'no-cache' }
+      });
       return response.data;
     } catch (error) {
       console.error('Lỗi khi lấy danh sách hộ khẩu:', error);

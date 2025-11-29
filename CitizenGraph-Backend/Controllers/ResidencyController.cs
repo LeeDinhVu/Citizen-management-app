@@ -25,6 +25,16 @@ namespace CitizenGraph.Backend.Controllers
             try
             {
                 var households = await _residencyService.GetAllHouseholdsAsync();
+                
+                // DEBUG: Log response trước khi trả về
+                var totalMembers = households.Sum(h => h.SoLuongThanhVien);
+                Console.WriteLine($"🔍 [ResidencyController] Returning {households.Count} households");
+                Console.WriteLine($"🔍 [ResidencyController] Total members in response: {totalMembers}");
+                foreach (var h in households)
+                {
+                    Console.WriteLine($"  API Response: {h.SoHoKhau} = {h.SoLuongThanhVien} members");
+                }
+                
                 return Ok(households);
             }
             catch (Exception ex)

@@ -24,32 +24,48 @@ namespace CitizenGraph.Backend.Services
             {
                 var query = @"
                     MATCH (h:Household)
-                    OPTIONAL MATCH (p:Person)-[rel:CURRENT_RESIDENT]->(h)
-                    WHERE rel.toDate IS NULL
                     OPTIONAL MATCH (chuHo:Person {cccd: h.headOfHouseholdCCCD})
+                    CALL {
+                        WITH h
+                        OPTIONAL MATCH (p:Person)-[rel:CURRENT_RESIDENT]->(h)
+                        WHERE rel.toDate IS NULL
+                        RETURN count(DISTINCT p) as memberCount
+                    }
                     RETURN 
                         elementId(h) AS id,
                         h.householdId AS soHoKhau,
                         COALESCE(h.addressText, h.address, h.registrationNumber, 'Chưa có địa chỉ') AS diaChi,
                         COALESCE(chuHo.hoTen, 'Chưa xác định') AS tenChuHo,
-                        count(p) AS soLuongThanhVien
+                        memberCount AS soLuongThanhVien
                     ORDER BY h.householdId
                 ";
 
                 var result = await session.RunAsync(query);
                 var records = await result.ToListAsync();
 
+                Console.WriteLine($"📊 [ResidencyService] Found {records.Count} households");
+                
+                int totalMembers = 0;
                 foreach (var record in records)
                 {
-                    households.Add(new HouseholdDTO
+                    var memberCount = record["soLuongThanhVien"].As<int>();
+                    totalMembers += memberCount;
+                    
+                    var household = new HouseholdDTO
                     {
                         Id = record["id"].As<string>(),
                         SoHoKhau = record["soHoKhau"].As<string>(),
                         DiaChi = record["diaChi"].As<string>(),
                         TenChuHo = record["tenChuHo"].As<string>(),
-                        SoLuongThanhVien = record["soLuongThanhVien"].As<int>()
-                    });
+                        SoLuongThanhVien = memberCount
+                    };
+                    
+                    households.Add(household);
+                    Console.WriteLine($"  - Hộ {household.SoHoKhau}: {memberCount} thành viên");
                 }
+                
+                Console.WriteLine($"📊 [ResidencyService] TỔNG: {totalMembers} thành viên trong {records.Count} hộ");
+                Console.WriteLine($"📊 [ResidencyService] TRUNG BÌNH: {(records.Count > 0 ? (double)totalMembers / records.Count : 0):F1} người/hộ");
             }
             finally
             {

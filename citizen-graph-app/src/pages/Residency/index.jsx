@@ -90,6 +90,15 @@ const ResidencyPage = () => {
     try {
       setLoading(true);
       const data = await residencyService.getAllHouseholds();
+      console.log('🏠 [Frontend] Raw API response:', data);
+      console.log('🏠 [Frontend] First household:', data[0]);
+      console.log('🏠 [Frontend] SoLuongThanhVien values:', data.map(h => ({ 
+        hoKhau: h.soHoKhau, 
+        count: h.soLuongThanhVien, 
+        type: typeof h.soLuongThanhVien 
+      })));
+      const total = data.reduce((sum, h) => sum + h.soLuongThanhVien, 0);
+      console.log('🏠 [Frontend] Calculated total:', total);
       setHouseholds(data);
     } catch (error) {
       message.error('Không thể lấy danh sách hộ khẩu');
@@ -501,7 +510,7 @@ const ResidencyPage = () => {
           <Card>
             <Statistic
               title="Tổng số thành viên"
-              value={households.reduce((sum, h) => sum + h.soLuongThanhVien, 0)}
+              value={households.reduce((sum, h) => sum + Number(h.soLuongThanhVien || 0), 0)}
               prefix={<TeamOutlined />}
             />
           </Card>
@@ -511,7 +520,7 @@ const ResidencyPage = () => {
             <Statistic
               title="Trung bình/hộ"
               value={households.length > 0 
-                ? (households.reduce((sum, h) => sum + h.soLuongThanhVien, 0) / households.length).toFixed(1)
+                ? (households.reduce((sum, h) => sum + Number(h.soLuongThanhVien || 0), 0) / households.length).toFixed(1)
                 : 0}
               prefix={<UserOutlined />}
             />

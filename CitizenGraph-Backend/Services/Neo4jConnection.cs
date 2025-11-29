@@ -16,7 +16,7 @@ namespace CitizenGraph.Backend.Services
         {
             _driver = GraphDatabase.Driver(
                 "bolt://127.0.0.1:7687",
-                AuthTokens.Basic("neo4j", "quanlycongdan")
+                AuthTokens.Basic("neo4j", "12345678")
             );
 
             _ = TestConnectionAsync();

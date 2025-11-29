@@ -104,24 +104,27 @@ namespace CitizenGraph.Backend.Controllers
 
             try
             {
-                // 1. Thống kê cơ bản
+                // 1. Thống kê cơ bản - CHỈ ĐẾM NGƯỜI TRONG HỘ KHẨU
                 var basicQuery = @"
-                    MATCH (p:Person) WITH count(p) AS TotalPop
-                    MATCH (a:Address) WITH TotalPop, count(a) AS TotalHouseholds
-                    MATCH (v:Vehicle) WITH TotalPop, TotalHouseholds, count(v) AS TotalVehicles
-                    MATCH (p2:Person) 
+                    MATCH (h:Household)
+                    WITH count(h) AS TotalHouseholds
+                    MATCH (p:Person)-[:LIVES_IN]->(:Household)
+                    WITH TotalHouseholds, count(DISTINCT p) AS TotalPop
+                    MATCH (v:Vehicle)
+                    WITH TotalHouseholds, TotalPop, count(v) AS TotalVehicles
+                    MATCH (p2:Person)-[:LIVES_IN]->(:Household)
                     WHERE p2.covidStatus IN ['F0','F1'] OR p2.trangThai = 'Cách ly'
-                    RETURN TotalPop, TotalHouseholds, TotalVehicles, count(p2) AS SecurityAlerts";
+                    RETURN TotalPop, TotalHouseholds, TotalVehicles, count(DISTINCT p2) AS SecurityAlerts";
 
-                // 2. Giới tính
+                // 2. Giới tính - CHỈ NGƯỜI TRONG HỘ KHẨU
                 var genderQuery = @"
-                    MATCH (p:Person) 
+                    MATCH (p:Person)-[:LIVES_IN]->(:Household)
                     WHERE p.gioiTinh IS NOT NULL
-                    RETURN p.gioiTinh AS Gender, count(p) AS Count";
+                    RETURN p.gioiTinh AS Gender, count(DISTINCT p) AS Count";
 
-                // 3. Độ tuổi lao động
+                // 3. Độ tuổi lao động - CHỈ NGƯỜI TRONG HỘ KHẨU
                 var ageQuery = @"
-                    MATCH (p:Person) 
+                    MATCH (p:Person)-[:LIVES_IN]->(:Household)
                     WHERE p.ngaySinh IS NOT NULL
                     WITH p, date().year - date(p.ngaySinh).year AS Age
                     RETURN 

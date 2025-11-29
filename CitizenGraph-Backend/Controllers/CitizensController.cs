@@ -25,6 +25,28 @@ namespace CitizenGraph.Backend.Controllers
         // =========================================================================================
         // 1. THỐNG KÊ CÔNG DÂN
         // =========================================================================================
+        [HttpGet("debug-count")]
+        public async Task<IActionResult> DebugCount()
+        {
+            try
+            {
+                var simpleQuery = "MATCH (p:Person) RETURN count(p) as Total";
+                var result = await _repository.RunAsync(simpleQuery);
+                var rec = result.FirstOrDefault();
+                var total = rec?["Total"].As<long>() ?? 0;
+                
+                return Ok(new { 
+                    message = "Simple count query",
+                    total = total,
+                    query = simpleQuery
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = ex.Message, stack = ex.StackTrace });
+            }
+        }
+
         [HttpGet("stats")]
         public async Task<IActionResult> GetStats()
         {
@@ -35,19 +57,12 @@ namespace CitizenGraph.Backend.Controllers
             {
                 var query = @"
                     MATCH (p:Person)
-                    WITH count(p) AS Total
-                    MATCH (m:Person) WHERE m.gioiTinh = 'Nam'   WITH Total, count(m) AS Male
-                    MATCH (f:Person) WHERE f.gioiTinh = 'Nữ'    WITH Total, Male, count(f) AS Female
-                    MATCH (a:Person) WHERE a.ngaySinh IS NOT NULL
-                    WITH Total, Male, Female, a
-                    WITH Total, Male, Female, 
-                         date().year - date(a.ngaySinh).year AS Age
                     RETURN 
-                        Total,
-                        Male,
-                        Female,
-                        Total - (Male + Female) AS OtherGender,
-                        avg(toFloat(Age)) AS AvgAge";
+                        count(p) AS Total,
+                        count(CASE WHEN p.gioiTinh = 'Nam' THEN 1 END) AS Male,
+                        count(CASE WHEN p.gioiTinh = 'Nữ' THEN 1 END) AS Female,
+                        count(p) - count(CASE WHEN p.gioiTinh = 'Nam' THEN 1 END) - count(CASE WHEN p.gioiTinh = 'Nữ' THEN 1 END) AS OtherGender,
+                        avg(CASE WHEN p.ngaySinh IS NOT NULL THEN date().year - date(p.ngaySinh).year ELSE null END) AS AvgAge";
 
                 var result = await _repository.RunAsync(query);
                 var rec = result.FirstOrDefault();
