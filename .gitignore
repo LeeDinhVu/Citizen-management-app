@@ -1,0 +1,5 @@
+CitizenGraph-Backend/bin/
+CitizenGraph-Backend/obj/
+*.dll
+*.pdb
+*.cache
