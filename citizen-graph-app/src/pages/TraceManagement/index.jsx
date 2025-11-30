@@ -26,10 +26,16 @@ const TracePage = () => {
 
   // Gọi API
   const handleTrace = async () => {
+    // [VALIDATE FRONTEND] Kiểm tra CCCD 12 số
     if (!cccd) {
-      notification.warning({ message: 'Vui lòng nhập CCCD' });
+      notification.warning({ message: 'Vui lòng nhập số CCCD' });
       return;
     }
+    if (!/^\d{12}$/.test(cccd)) {
+      notification.error({ message: 'CCCD không hợp lệ', description: 'Số CCCD phải bao gồm đúng 12 chữ số.' });
+      return;
+    }
+
     setLoading(true);
     setSelectedNode(null);
     setData(null);
@@ -42,8 +48,10 @@ const TracePage = () => {
         setData(res.data);
         notification.success({ 
             message: 'Truy vết thành công', 
-            description: `Tìm thấy ${res.data.nodes.length - 1} đối tượng liên quan.` 
+            description: `Tìm thấy ${res.data.nodes.length > 0 ? res.data.nodes.length - 1 : 0} đối tượng liên quan.` 
         });
+      } else {
+        notification.info({ message: 'Không tìm thấy dữ liệu liên quan' });
       }
     } catch (error) {
       console.error(error);
@@ -78,7 +86,7 @@ const TracePage = () => {
         id: n.id,
         label: (n.group === 'Location' && n.label.length > 15) ? n.label.substring(0, 15) + '...' : n.label,
         group: n.group,
-        title: JSON.stringify(n.info, null, 2), // Tooltip
+        title: n.label, // Tooltip đơn giản là tên, chi tiết xem ở panel bên phải
         shape: n.group === 'Location' ? 'hexagon' : 'dot',
         size: n.group === 'F0' ? 35 : n.group === 'Location' ? 30 : 25,
         font: { color: n.group === 'F0' ? 'white' : 'black', size: 14 }
@@ -88,8 +96,10 @@ const TracePage = () => {
       const edges = data.edges.map(e => {
         // Xử lý nhãn ngày tháng an toàn
         let labelText = '';
-        if (e.label === 'VISITED') {
+        if (e.label === 'VISITED' && e.info?.visitDate) {
             labelText = safeDateStr(e.info.visitDate);
+        } else if (e.label === 'CONTACTED') {
+            labelText = 'Tiếp xúc';
         }
 
         return {
@@ -102,19 +112,10 @@ const TracePage = () => {
             smooth: { type: 'continuous' }
         };
       });
-    //   const edges = data.edges.map(e => ({
-    //     from: e.from,
-    //     to: e.to,
-    //     label: e.label === 'VISITED' && e.info.visitDate ? e.info.visitDate.split('T')[0] : '',
-    //     arrows: 'to',
-    //     color: { color: '#bdc3c7' },
-    //     dashes: e.label === 'VISITED',
-    //     smooth: { type: 'continuous' }
-    //   }));
 
       const options = {
         groups: {
-          F0: { color: { background: '#ff4d4d', border: '#b30000' } }, // Đỏ
+          F0: { color: { background: '#ff4d4d', border: '#b30000' }, font: { color: 'white' } }, // Đỏ
           F1: { color: { background: '#ff9f40', border: '#e65c00' } }, // Cam
           F1_Indirect: { color: { background: '#f1c40f', border: '#f39c12' } }, // Vàng
           Location: { color: { background: '#3498db', border: '#2980b9' }, font: { color: 'white' } } // Xanh
@@ -137,7 +138,7 @@ const TracePage = () => {
             if (nodeDetails) {
                 const displayInfo = { ...nodeDetails.info };
                 // Format lại các trường ngày tháng trong info nếu có
-                ['visitDate', 'ngaySinh'].forEach(field => {
+                ['visitDate', 'ngaySinh', 'lastContactDate'].forEach(field => {
                     if (displayInfo[field]) displayInfo[field] = safeDateStr(displayInfo[field]);
                 });
                 
@@ -150,19 +151,8 @@ const TracePage = () => {
             setSelectedNode(null);
             }
         });
-        }
-    }, [data]);
-//       networkRef.current.on("click", (params) => {
-//         if (params.nodes.length > 0) {
-//           const nodeId = params.nodes[0];
-//           const nodeDetails = data.nodes.find(n => n.id === nodeId);
-//           setSelectedNode(nodeDetails);
-//         } else {
-//           setSelectedNode(null);
-//         }
-//       });
-//     }
-//   }, [data]);
+    }
+  }, [data]);
 
   // Cấu hình cột cho bảng
   const tableColumns = [
@@ -201,9 +191,15 @@ const TracePage = () => {
               size="large" 
               placeholder="Nhập CCCD F0 (Ví dụ: 001093000001)..." 
               value={cccd} 
-              onChange={e => setCccd(e.target.value)} 
+              // [IMPROVE] Chỉ cho phép nhập số
+              onChange={e => {
+                  const val = e.target.value;
+                  if (!val || /^\d+$/.test(val)) setCccd(val);
+              }} 
               prefix={<SearchOutlined />} 
               onPressEnter={handleTrace}
+              maxLength={12} // Giới hạn 12 ký tự
+              allowClear
             />
           </Col>
           <Col span={4}>

@@ -343,4 +343,3 @@ namespace CitizenGraph.Backend.Controllers
         }
     }
 }
-

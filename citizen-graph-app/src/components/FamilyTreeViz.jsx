@@ -142,7 +142,7 @@ const FamilyTreeViz = ({ graphData, loading, rootId, onLinkClick, onNodeClick })
     const containerRef = useRef();
     const [selectedNode, setSelectedNode] = useState(null);
     const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
-    const [hoverLink, setHoverLink] = useState(null); // State để highlight dây khi hover
+    const [hoverLink, setHoverLink] = useState(null);
 
     // Auto-resize
     useEffect(() => {
@@ -158,8 +158,8 @@ const FamilyTreeViz = ({ graphData, loading, rootId, onLinkClick, onNodeClick })
     // Force Config
     useEffect(() => {
         if (graphData && graphData.nodes.length > 0 && fgRef.current) {
-            fgRef.current.d3Force('charge').strength(-250); // Đẩy vừa phải
-            fgRef.current.d3Force('link').distance(120);    // Dây dài hơn chút để thoáng
+            fgRef.current.d3Force('charge').strength(-300); // Đẩy mạnh hơn chút
+            fgRef.current.d3Force('link').distance(100);
             setTimeout(() => { if(fgRef.current) fgRef.current.zoomToFit(400, 50); }, 800);
         }
     }, [graphData, dimensions]);
@@ -174,8 +174,8 @@ const FamilyTreeViz = ({ graphData, loading, rootId, onLinkClick, onNodeClick })
         else setSelectedNode(node);
     };
 
-    if (loading) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 400 }}><Spin size="large" tip="Đang tải..." /></div>;
-    if (!graphData || !graphData.nodes || graphData.nodes.length === 0) return <div style={{ padding: 40, textAlign: 'center', color: '#999' }}>Chưa có dữ liệu hiển thị</div>;
+    if (loading) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: 400 }}><Spin size="large" tip="Đang tải dữ liệu..." /></div>;
+    if (!graphData || !graphData.nodes || graphData.nodes.length === 0) return <div style={{ padding: 40, textAlign: 'center', color: '#999' }}>Không có dữ liệu hiển thị</div>;
 
     return (
         <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#fafafa' }}>
@@ -189,12 +189,13 @@ const FamilyTreeViz = ({ graphData, loading, rootId, onLinkClick, onNodeClick })
                 </Space>
             </div>
 
-            {/* Legend */}
-            <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 9, background: 'rgba(255,255,255,0.9)', padding: '8px 12px', borderRadius: 6, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', fontSize: 12 }}>
-                <div style={{fontWeight: 'bold', marginBottom: 5}}>Chú thích:</div>
-                <div style={{display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2}}><div style={{width: 12, height: 12, borderRadius: '50%', background: '#ff4d4f'}}></div> Mục tiêu</div>
-                <div style={{display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2}}><div style={{width: 12, height: 12, borderRadius: '50%', background: '#1677ff'}}></div> Nam</div>
-                <div style={{display: 'flex', alignItems: 'center', gap: 6}}><div style={{width: 12, height: 12, borderRadius: '50%', background: '#eb2f96'}}></div> Nữ</div>
+            {/* Legend - ĐÃ SỬA: Thêm chú thích Hộ khẩu */}
+            <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 9, background: 'rgba(255,255,255,0.95)', padding: '10px 14px', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.15)', fontSize: 12 }}>
+                <div style={{fontWeight: 'bold', marginBottom: 8, borderBottom: '1px solid #eee', paddingBottom: 4}}>CHÚ THÍCH</div>
+                <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4}}><div style={{width: 12, height: 12, borderRadius: '50%', background: '#ff4d4f', border: '1px solid #fff'}}></div> Đối tượng chọn (Root)</div>
+                <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4}}><div style={{width: 12, height: 12, borderRadius: '50%', background: '#1677ff', border: '1px solid #fff'}}></div> Nam</div>
+                <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4}}><div style={{width: 12, height: 12, borderRadius: '50%', background: '#eb2f96', border: '1px solid #fff'}}></div> Nữ</div>
+                {/* <div style={{display: 'flex', alignItems: 'center', gap: 8}}><div style={{width: 12, height: 12, borderRadius: '2px', background: '#52c41a', border: '1px solid #fff'}}></div> Hộ khẩu / Nhà</div> */}
             </div>
 
             <ForceGraph2D
@@ -203,10 +204,9 @@ const FamilyTreeViz = ({ graphData, loading, rootId, onLinkClick, onNodeClick })
                 width={dimensions.width}
                 height={dimensions.height}
                 
-                linkDirectionalArrowLength={0} // Tắt auto arrow
+                linkDirectionalArrowLength={0} // Tắt arrow mặc định để vẽ thủ công
                 
-                // Tăng vùng nhận diện click cho dây
-                linkHoverPrecision={10} 
+                linkHoverPrecision={8} 
                 onLinkHover={link => setHoverLink(link)}
                 onLinkClick={onLinkClick}
                 onNodeClick={handleInternalNodeClick}
@@ -217,8 +217,9 @@ const FamilyTreeViz = ({ graphData, loading, rootId, onLinkClick, onNodeClick })
                     if (typeof start !== 'object' || typeof end !== 'object') return;
 
                     const isHovered = hoverLink === link;
+                    // ĐÃ SỬA: Nếu là quan hệ Vợ/Chồng thì không vẽ mũi tên (quan hệ song phương)
+                    const isMarriage = (link.label === 'Vợ/Chồng' || link.type === 'MARRIED_TO');
 
-                    // Tọa độ
                     const NODE_R = 14; 
                     const dx = end.x - start.x;
                     const dy = end.y - start.y;
@@ -228,44 +229,48 @@ const FamilyTreeViz = ({ graphData, loading, rootId, onLinkClick, onNodeClick })
                     const tgtX = end.x - (dx / dist) * NODE_R;
                     const tgtY = end.y - (dy / dist) * NODE_R;
 
-                    // 1. VẼ DÂY (Nét đậm nếu hover)
+                    // 1. VẼ DÂY
                     ctx.beginPath(); 
                     ctx.moveTo(start.x, start.y); 
                     ctx.lineTo(tgtX, tgtY);
-                    ctx.lineWidth = (isHovered ? 4 : 2) / globalScale; // Dây to hơn
-                    ctx.strokeStyle = isHovered ? '#ff4d4f' : '#999'; // Đổi màu khi hover
+                    
+                    // Style dây
+                    ctx.lineWidth = (isHovered ? 3 : (isMarriage ? 2 : 1.5)) / globalScale; 
+                    ctx.strokeStyle = isHovered ? '#ff4d4f' : (isMarriage ? '#faad14' : '#999'); // Vợ chồng màu vàng cam
+                    
+                    // Nếu vợ chồng, vẽ nét đứt hoặc style khác nếu muốn (ở đây giữ nét liền màu khác)
                     ctx.stroke();
 
-                    // 2. VẼ MŨI TÊN (To và Rõ)
-                    const arrowLen = 8 / globalScale * (isHovered ? 1.5 : 1.2); // Mũi tên to
-                    const angle = Math.atan2(dy, dx);
-                    
-                    ctx.save();
-                    ctx.translate(tgtX, tgtY);
-                    ctx.rotate(angle);
-                    ctx.beginPath();
-                    ctx.moveTo(0, 0);
-                    ctx.lineTo(-arrowLen * 1.5, -arrowLen); // Cánh trái rộng hơn
-                    ctx.lineTo(-arrowLen * 1.5, arrowLen);  // Cánh phải rộng hơn
-                    ctx.lineTo(0, 0);
-                    ctx.fillStyle = isHovered ? '#ff4d4f' : '#666';
-                    ctx.fill();
-                    ctx.restore();
+                    // 2. VẼ MŨI TÊN (Chỉ vẽ nếu KHÔNG phải là Vợ/Chồng)
+                    if (!isMarriage) {
+                        const arrowLen = 6 / globalScale * (isHovered ? 1.5 : 1);
+                        const angle = Math.atan2(dy, dx);
+                        
+                        ctx.save();
+                        ctx.translate(tgtX, tgtY);
+                        ctx.rotate(angle);
+                        ctx.beginPath();
+                        ctx.moveTo(0, 0);
+                        ctx.lineTo(-arrowLen * 1.5, -arrowLen);
+                        ctx.lineTo(-arrowLen * 1.5, arrowLen);
+                        ctx.lineTo(0, 0);
+                        ctx.fillStyle = isHovered ? '#ff4d4f' : '#666';
+                        ctx.fill();
+                        ctx.restore();
+                    }
 
                     // 3. VẼ NHÃN (Label)
                     if (link.label) {
                         const midX = start.x + dx / 2; 
                         const midY = start.y + dy / 2; 
-                        const fontSize = (isHovered ? 14 : 12) / globalScale;
+                        const fontSize = (isHovered ? 12 : 10) / globalScale;
                         ctx.font = `${isHovered ? 'bold' : ''} ${fontSize}px Sans-Serif`;
                         const textWidth = ctx.measureText(link.label).width;
                         const bckgDim = [textWidth, fontSize].map(n => n + fontSize * 0.6);
                         
-                        // Nền nhãn nổi bật khi hover
-                        ctx.fillStyle = isHovered ? 'rgba(255, 240, 240, 0.95)' : 'rgba(255, 255, 255, 0.85)';
+                        ctx.fillStyle = isHovered ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.8)';
                         ctx.fillRect(midX - bckgDim[0] / 2, midY - bckgDim[1] / 2, ...bckgDim);
                         
-                        // Viền nhãn nếu hover
                         if(isHovered) {
                             ctx.strokeStyle = '#ff4d4f';
                             ctx.lineWidth = 1 / globalScale;
@@ -278,39 +283,38 @@ const FamilyTreeViz = ({ graphData, loading, rootId, onLinkClick, onNodeClick })
                     }
                 }}
 
-                // --- VẼ NODE (To hơn) ---
+                // --- VẼ NODE ---
                 nodeCanvasObject={(node, ctx, globalScale) => {
                     const label = node.hoTen; 
-                    const fontSize = 14 / globalScale;
+                    const fontSize = 12 / globalScale;
                     ctx.font = `bold ${fontSize}px Sans-Serif`;
                     
                     const isHousehold = node.gioiTinh === 'Household';
                     
                     if (isHousehold) {
-                        const size = 24 / globalScale * 8; // Scale size theo zoom để không quá bé
-                        const staticSize = 20;
-                        ctx.fillStyle = '#52c41a'; 
+                        const size = 18 / globalScale * 8; 
+                        const staticSize = 16;
+                        ctx.fillStyle = '#52c41a'; // Màu xanh lá cho Hộ khẩu
                         ctx.fillRect(node.x - staticSize/2, node.y - staticSize/2, staticSize, staticSize);
+                        ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 / globalScale; 
+                        ctx.strokeRect(node.x - staticSize/2, node.y - staticSize/2, staticSize, staticSize);
                     } else {
-                        const r = 10; 
+                        const r = 8; 
                         ctx.beginPath(); ctx.arc(node.x, node.y, r, 0, 2 * Math.PI, false);
                         ctx.fillStyle = node.id === rootId ? '#ff4d4f' : (node.gioiTinh === 'Nam' ? '#1677ff' : '#eb2f96');
                         ctx.fill(); 
-                        // Viền node
                         ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 / globalScale; ctx.stroke();
                     }
                     
-                    // Tên Node
                     const textWidth = ctx.measureText(label).width;
                     const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.4);
                     ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-                    ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y + 14, ...bckgDimensions);
+                    ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y + 12, ...bckgDimensions);
                     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000';
-                    ctx.fillText(label, node.x, node.y + 14 + fontSize / 2);
+                    ctx.fillText(label, node.x, node.y + 12 + fontSize / 2);
                 }}
             />
             
-            {/* Modal Detail Node */}
             <Modal title={selectedNode?.hoTen} open={!!selectedNode} onCancel={() => setSelectedNode(null)} footer={null}>
                 {selectedNode && <Descriptions column={1} bordered size="small">
                     <Descriptions.Item label="ID/CCCD">{selectedNode.id}</Descriptions.Item>

@@ -11,7 +11,7 @@ import {
     DeleteOutlined, EditOutlined 
 } from '@ant-design/icons';
 import axios from 'axios';
-import FamilyTreeViz from '../../components/FamilyTreeViz'; 
+import FamilyTreeViz from '../../components/FamilyTreeViz'; // Đảm bảo đường dẫn import đúng
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -22,10 +22,14 @@ const isValidDateStr = (str) => {
     return typeof str === 'string' && regex.test(str);
 };
 
+const validatePastDate = (_, value) => {
+    if (value && value.isAfter(dayjs(), 'day')) {
+        return Promise.reject(new Error('Ngày không được là ngày tương lai'));
+    }
+    return Promise.resolve();
+};
+
 const FamilyGraphPage = () => {
-  // ... (Giữ nguyên toàn bộ State và Logic API của bạn)
-  // ... (Copy lại phần logic state/effect/api từ phiên bản trước)
-  
   const [stats, setStats] = useState(null);
   const [households, setHouseholds] = useState([]);
   const [citizens, setCitizens] = useState([]); 
@@ -43,7 +47,6 @@ const FamilyGraphPage = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [relModalVisible, setRelModalVisible] = useState(false);
   const [hhModalVisible, setHhModalVisible] = useState(false);
-//   const [citizenModalVisible, setCitizenModalVisible] = useState(false);
   const [addMemberModalVisible, setAddMemberModalVisible] = useState(false);
   const [linkActionModalVisible, setLinkActionModalVisible] = useState(false);
   const [memberRelEditVisible, setMemberRelEditVisible] = useState(false);
@@ -56,7 +59,6 @@ const FamilyGraphPage = () => {
   const [formRel] = Form.useForm();
   const [formHh] = Form.useForm();
   const [formMember] = Form.useForm();
-//   const [formCitizen] = Form.useForm();
   const [formLinkEdit] = Form.useForm();
   const [formMemberRelEdit] = Form.useForm(); 
 
@@ -72,25 +74,174 @@ const FamilyGraphPage = () => {
   const viewMemberDetail = async (cccd) => { try { const res = await axios.get(`${API_URL}/member-detail`, { params: { cccd } }); if (res.data.success) { setMemberDetail(res.data.data); setModalVisible(true); } } catch (err) {} };
   const viewFullTree = async (cccd, name) => { setSelectedRootId(cccd); setSelectedRootName(name); setLoadingTree(true); setTreeData({ nodes: [], links: [] }); try { const res = await axios.get(`${API_URL}/full-tree`, { params: { cccd } }); const data = res.data.data; if(res.data.success && data) { if (data.links.length === 0 && data.nodes.length <= 1) { Modal.confirm({ title: 'Thông báo', content: `Công dân ${name} chưa có quan hệ gia đình.`, onOk: () => { formRel.resetFields(); formRel.setFieldsValue({ sourceId: cccd }); setRelModalVisible(true); } }); } else { setTreeData(data); setDrawerVisible(true); } } } catch (err) {} finally { setLoadingTree(false); } };
   const handleNodeClick = (node) => { if(node.id) viewMemberDetail(node.id); };
-  const handleLinkClick = (link) => { setSelectedLink(link); const formData = { type: link.label }; const propKeys = []; if (link.properties) { Object.entries(link.properties).forEach(([key, value]) => { propKeys.push(key); if (isValidDateStr(value)) formData[key] = dayjs(value); else formData[key] = value; }); } if(propKeys.length===0) propKeys.push('note', 'fromDate'); setDynamicLinkProps(propKeys); formLinkEdit.setFieldsValue(formData); setLinkActionModalVisible(true); };
+  const handleLinkClick = (link) => { setSelectedLink(link); const formData = { type: link.label }; const propKeys = []; if (link.properties) { Object.entries(link.properties).forEach(([key, value]) => { propKeys.push(key); if (typeof value === 'string' && value.trim().startsWith('{') && value.includes('year')) { try{ const dateObj = JSON.parse(value); const d = dayjs(`${dateObj.year}-${String(dateObj.month).padStart(2, '0')}-${String(dateObj.day).padStart(2, '0')}`); formData[key] = d.isValid() ? d : null; } catch (e) { formData[key] = null; }} else if (isValidDateStr(value)) formData[key] = dayjs(value); else formData[key] = value; }); } if(propKeys.length===0) propKeys.push('note', 'fromDate'); setDynamicLinkProps(propKeys); formLinkEdit.setFieldsValue(formData); setLinkActionModalVisible(true); };
 
-  const handleCreateRelationship = async () => { try { const v = await formRel.validateFields(); await axios.post(`${API_URL}/relationship`, { sourceId: v.sourceId, targetId: v.targetId, type: v.type, properties: { createdDate: new Date().toISOString().split('T')[0] } }); notification.success({ message: 'Thành công' }); setRelModalVisible(false); fetchData(); if(selectedRootId) viewFullTree(selectedRootId, selectedRootName); } catch(err){ notification.error({ message: 'Lỗi' }); } };
+  // --- SỬA: handleCreateRelationship ---
+  const handleCreateRelationship = async () => { 
+    try { 
+        const v = await formRel.validateFields(); 
+        if (v.sourceId === v.targetId) { notification.error({ message: 'Lỗi', description: 'Không thể tạo quan hệ với chính mình.' }); return; }
+
+        // Xử lý properties (format date)
+        const rawProps = v.properties || {};
+        const cleanProps = {};
+        Object.keys(rawProps).forEach(key => {
+            const val = rawProps[key];
+            if (val && dayjs.isDayjs(val)) cleanProps[key] = val.format('YYYY-MM-DD');
+            else cleanProps[key] = val;
+        });
+
+        await axios.post(`${API_URL}/relationship`, { 
+            SourceId: v.sourceId, TargetId: v.targetId, Type: v.type, Properties: cleanProps 
+        }); 
+        
+        notification.success({ message: 'Thành công', description: 'Đã tạo mối quan hệ hai chiều.' }); 
+        setRelModalVisible(false); fetchData(); 
+        if(selectedRootId) viewFullTree(selectedRootId, selectedRootName); 
+    } catch(err){ 
+        const msg = err.response?.data?.message || 'Lỗi tạo quan hệ';
+        notification.error({ message: 'Lỗi', description: msg }); 
+    } 
+  };
+  // const handleCreateRelationship = async () => { 
+  //   try { 
+  //       const v = await formRel.validateFields(); 
+        
+  //       // Validate logic Frontend
+  //       if (v.sourceId === v.targetId) {
+  //           notification.error({ message: 'Lỗi logic', description: 'Không thể tạo quan hệ với chính mình.' });
+  //           return;
+  //       }
+
+  //       // Gọi API với DTO chuẩn (PascalCase properties)
+  //       await axios.post(`${API_URL}/relationship`, { 
+  //           SourceId: v.sourceId, 
+  //           TargetId: v.targetId, 
+  //           Type: v.type, 
+  //           Properties: { createdDate: dayjs().format('YYYY-MM-DD') } 
+  //       }); 
+        
+  //       notification.success({ message: 'Thành công', description: 'Đã tạo mối quan hệ mới' }); 
+  //       setRelModalVisible(false); 
+  //       fetchData(); 
+  //       if(selectedRootId) viewFullTree(selectedRootId, selectedRootName); 
+  //   } catch(err){ 
+  //       // Hiển thị thông báo lỗi chi tiết từ backend (VD: Đã kết hôn)
+  //       const msg = err.response?.data?.message || 'Lỗi tạo quan hệ';
+  //       notification.error({ message: 'Lỗi', description: msg }); 
+  //   } 
+  // };
+
   const handleUpdateLink = async () => { try { const values = await formLinkEdit.validateFields(); const { type, ...rawProps } = values; const propsToUpdate = {}; Object.entries(rawProps).forEach(([key, val]) => { if (val && dayjs.isDayjs(val)) propsToUpdate[key] = val.format('YYYY-MM-DD'); else propsToUpdate[key] = val; }); await axios.put(`${API_URL}/relationship/${selectedLink.id}`, propsToUpdate); notification.success({ message: 'Đã cập nhật' }); setLinkActionModalVisible(false); if(selectedRootId) viewFullTree(selectedRootId, selectedRootName); } catch(err) { notification.error({ message: 'Lỗi cập nhật' }); } };
-  const handleDeleteLink = async () => { try { await axios.delete(`${API_URL}/relationship/${selectedLink.id}`); notification.success({ message: 'Đã xóa' }); setLinkActionModalVisible(false); if(selectedRootId) viewFullTree(selectedRootId, selectedRootName); } catch(err){} };
-  
+  // const handleDeleteLink = async () => { try { await axios.delete(`${API_URL}/relationship/${selectedLink.id}`); notification.success({ message: 'Đã xóa' }); setLinkActionModalVisible(false); if(selectedRootId) viewFullTree(selectedRootId, selectedRootName); } catch(err){} };
+  const handleDeleteLink = () => {
+    Modal.confirm({
+        title: 'Cảnh báo xóa quan hệ',
+        content: (
+            <div>
+                <p>Bạn đang thực hiện xóa mối quan hệ: <b>{selectedLink.label}</b>.</p>
+                <p style={{color: '#cf1322'}}>Hành động này sẽ <b>xóa cả mối quan hệ chiều ngược lại</b> (nếu có) giữa hai người này để đảm bảo tính nhất quán của dữ liệu gia đình.</p>
+                <p>Bạn có chắc chắn muốn tiếp tục?</p>
+            </div>
+        ),
+        okText: 'Xóa ngay',
+        okType: 'danger',
+        cancelText: 'Hủy',
+        onOk: async () => {
+            try {
+                await axios.delete(`${API_URL}/relationship/${selectedLink.id}`);
+                notification.success({ message: 'Thành công', description: 'Đã xóa mối quan hệ hai chiều.' });
+                setLinkActionModalVisible(false);
+                if(selectedRootId) viewFullTree(selectedRootId, selectedRootName);
+            } catch(err) {
+                notification.error({ message: 'Lỗi', description: 'Không thể xóa quan hệ.' });
+            }
+        }
+    });
+  };  
   const openAddHousehold = () => { setIsEditing(false); formHh.resetFields(); setHhModalVisible(true); };
-  const openEditHousehold = (hh) => { setIsEditing(true); setSelectedHouseholdId(hh.householdCode); formHh.setFieldsValue({ householdId: hh.householdCode, registrationNumber: hh.registrationNumber, residencyType: hh.residencyType, registrationDate: hh.registrationDate ? dayjs(hh.registrationDate) : null }); setHhModalVisible(true); };
-  const handleSaveHousehold = async () => { try { const v = await formHh.validateFields(); const p = { householdId: isEditing?selectedHouseholdId:(v.householdId||`HK${Math.floor(Math.random()*10000)}`), registrationNumber: v.registrationNumber, headCccd: v.headCccd, residencyType: v.residencyType, registrationDate: v.registrationDate ? v.registrationDate.format('YYYY-MM-DD') : null }; if(isEditing) await axios.put(`${API_URL}/household/${selectedHouseholdId}`, p); else await axios.post(`${API_URL}/household`, p); notification.success({ message: 'Xong' }); setHhModalVisible(false); fetchHouseholds(); } catch(err){ notification.error({message: 'Lỗi lưu hộ khẩu'}); } };
+  const openEditHousehold = (hh) => { setIsEditing(true); setSelectedHouseholdId(hh.householdCode); formHh.setFieldsValue({ householdId: hh.householdCode, registrationNumber: hh.registrationNumber, residencyType: hh.residencyType, registrationDate: hh.registrationDate ? dayjs(hh.registrationDate) : null, headCccd: null }); setHhModalVisible(true); }; // Lưu ý: headCccd null vì select box cần load lại danh sách
+  
+  // --- SỬA: handleSaveHousehold ---
+  const handleSaveHousehold = async () => { 
+    try { 
+        const v = await formHh.validateFields(); 
+        
+        // Chuẩn bị payload theo HouseholdCreateDto
+        const p = { 
+            HouseholdId: isEditing ? selectedHouseholdId : (v.householdId || `HK${Math.floor(Math.random()*10000)}`), 
+            RegistrationNumber: v.registrationNumber, 
+            HeadCccd: v.headCccd, 
+            ResidencyType: v.residencyType, 
+            RegistrationDate: v.registrationDate ? v.registrationDate.format('YYYY-MM-DD') : null 
+        }; 
+        
+        if(isEditing) await axios.put(`${API_URL}/household/${selectedHouseholdId}`, p); 
+        else await axios.post(`${API_URL}/household`, p); 
+        
+        notification.success({ message: 'Thành công', description: isEditing ? 'Đã cập nhật hộ khẩu' : 'Đã tạo hộ khẩu mới' }); 
+        setHhModalVisible(false); 
+        fetchHouseholds(); 
+    } catch(err){ 
+        const msg = err.response?.data?.message || 'Lỗi lưu hộ khẩu';
+        notification.error({ message: 'Lỗi', description: msg }); 
+    } 
+  };
+
   const handleDeleteHousehold = async (hid) => { try{ await axios.delete(`${API_URL}/household/${hid}`); fetchHouseholds(); notification.success({message:'Đã xóa'}); }catch(e){ notification.error({message:'Lỗi xóa'}); } };
-  const handleAddMemberToHousehold = async () => { try{ const v=await formMember.validateFields(); await axios.post(`${API_URL}/household/member`,{ householdId: selectedHouseholdId, personCccd: v.personCccd, relationToHead: v.relationToHead, role: v.role||'Thành viên', fromDate: new Date().toISOString().split('T')[0] }); notification.success({message:'Đã thêm'}); setAddMemberModalVisible(false); fetchHouseholds(); }catch(e){ notification.error({ message: 'Lỗi thêm' }); } };
+  
+  // --- SỬA: handleAddMemberToHousehold ---
+  const handleAddMemberToHousehold = async () => { 
+    try{ 
+        const v = await formMember.validateFields(); 
+        
+        // Chuẩn bị payload theo AddMemberDto
+        await axios.post(`${API_URL}/household/member`,{ 
+            HouseholdId: selectedHouseholdId, 
+            PersonCccd: v.personCccd, 
+            RelationToHead: v.relationToHead, 
+            Role: v.role || 'Thành viên', 
+            FromDate: dayjs().format('YYYY-MM-DD') 
+        }); 
+        
+        notification.success({message:'Thành công', description: 'Đã thêm thành viên vào hộ'}); 
+        setAddMemberModalVisible(false); 
+        fetchHouseholds(); 
+    }catch(e){ 
+        const msg = e.response?.data?.message || 'Lỗi thêm thành viên';
+        notification.error({ message: 'Lỗi', description: msg }); 
+    } 
+  };
+
   const handleRemoveMember = async (hid, cccd) => { try{ await axios.delete(`${API_URL}/household/member`,{params:{householdId:hid, cccd}}); fetchHouseholds(); notification.success({message:'Đã xóa thành viên'}); }catch(e){ notification.error({ message: 'Lỗi xóa' }); } };
   
   const openEditMemberRel = async (hid, cccd, name) => { try { const res = await axios.get(`${API_URL}/member-detail`, { params: { cccd } }); if (res.data.success) { const detail = res.data.data; const relProps = detail.residentRelProps || {}; setSelectedMemberRel({ householdId: hid, cccd, name }); const role = relProps.role || 'Thành viên'; setCurrentRole(role); const formData = { role: role, relationToHead: relProps.relationToHead || (role === 'Chủ hộ' ? 'Bản thân' : ''), }; if(relProps.fromDate && isValidDateStr(relProps.fromDate)) formData.fromDate = dayjs(relProps.fromDate); formMemberRelEdit.setFieldsValue(formData); setMemberRelEditVisible(true); } } catch (e) { notification.error({ message: 'Lỗi tải' }); } };
   const handleSaveMemberRel = async () => { try { const values = await formMemberRelEdit.validateFields(); const props = { ...values }; if (dayjs.isDayjs(props.fromDate)) props.fromDate = props.fromDate.format('YYYY-MM-DD'); await axios.put(`${API_URL}/household/member-rel`, props, { params: { householdId: selectedMemberRel.householdId, cccd: selectedMemberRel.cccd } }); notification.success({ message: 'Cập nhật thành công' }); setMemberRelEditVisible(false); fetchHouseholds(); } catch (e) { notification.error({ message: 'Lỗi cập nhật' }); } };
   const handleRoleChange = (role, formInstance) => { setCurrentRole(role); if (role === 'Chủ hộ') { formInstance.setFieldsValue({ relationToHead: 'Bản thân' }); } else { if (formInstance.getFieldValue('relationToHead') === 'Bản thân') { formInstance.setFieldsValue({ relationToHead: null }); } } };
-//   const openEditCitizen = (c) => { setSelectedRootId(c.cccd); formCitizen.setFieldsValue(c); setCitizenModalVisible(true); };
-//   const handleUpdateCitizen = async () => { try{ const v = await formCitizen.validateFields(); await axios.put(`${API_URL}/citizen/${selectedRootId}`, v); setCitizenModalVisible(false); fetchCitizensForGenealogy(); notification.success({message:'Cập nhật OK'}); } catch(e){ notification.error({ message: 'Lỗi cập nhật' }); } };
-  const handleDeleteRelationshipFromList = async (r) => { try { await axios.delete(`${API_URL}/relationship/${r.id}`); notification.success({ message: 'Đã xóa' }); if(selectedRootId) viewFullTree(selectedRootId, selectedRootName); } catch(err){ notification.error({ message: 'Lỗi xóa' }); } };
+  // const handleDeleteRelationshipFromList = async (r) => { try { await axios.delete(`${API_URL}/relationship/${r.id}`); notification.success({ message: 'Đã xóa' }); if(selectedRootId) viewFullTree(selectedRootId, selectedRootName); } catch(err){ notification.error({ message: 'Lỗi xóa' }); } };
+  const handleDeleteRelationshipFromList = (r) => {
+    Modal.confirm({
+        title: 'Xác nhận xóa quan hệ',
+        content: (
+            <div>
+                <p>Xóa quan hệ: <b>{r.source} - {r.label} - {r.target}</b></p>
+                <p style={{color: '#cf1322'}}>Lưu ý: Hệ thống sẽ tự động xóa cả quan hệ chiều ngược lại giữa hai người này.</p>
+            </div>
+        ),
+        okText: 'Xóa',
+        okType: 'danger',
+        cancelText: 'Hủy',
+        onOk: async () => {
+            try {
+                await axios.delete(`${API_URL}/relationship/${r.id}`);
+                notification.success({ message: 'Đã xóa', description: 'Xóa thành công quan hệ hai chiều.' });
+                if(selectedRootId) viewFullTree(selectedRootId, selectedRootName);
+            } catch(err){
+                notification.error({ message: 'Lỗi xóa' });
+            }
+        }
+    });
+  };
 
   // Helper để mở modal detail và lưu context
   const handleViewMemberDetailWithId = (cccd, hid) => { setSelectedHouseholdId(hid); viewMemberDetail(cccd); };
@@ -106,7 +257,7 @@ const FamilyGraphPage = () => {
       </div>
       <div style={{ background: '#fff', padding: 24, borderRadius: 8 }}>
         <Tabs defaultActiveKey="2" items={[
-            // { key: '1', label: <span><HomeOutlined /> Hộ Khẩu</span>, children: renderDashboard() },
+            { key: '1', label: <span><HomeOutlined /> Hộ Khẩu</span>, children: renderDashboard() },
             { key: '2', label: <span><PartitionOutlined /> Tra cứu Phả Hệ</span>, children: renderGenealogy() },
             { key: '3', label: <span><GlobalOutlined /> Toàn cảnh</span>, children: <div style={{height: '75vh'}}><FamilyTreeViz graphData={globalData} loading={loadingGlobal} rootId={null} onNodeClick={handleNodeClick} onLinkClick={handleLinkClick} /></div> }
         ]} size="large" onChange={(k)=>k==='3'&&fetchGlobalGraph()} />
@@ -116,19 +267,19 @@ const FamilyGraphPage = () => {
 
       <Modal title={isEditing?"Sửa Hộ":"Thêm Hộ"} open={hhModalVisible} onCancel={()=>setHhModalVisible(false)} onOk={handleSaveHousehold}>
         <Form form={formHh} layout="vertical">
-            {!isEditing && <Form.Item name="householdId" label="Mã Hộ Khẩu"><Input placeholder="Để trống tự sinh" /></Form.Item>}
-            <Form.Item name="registrationNumber" label="Số Đăng Ký"><Input /></Form.Item>
+            {!isEditing && <Form.Item name="householdId" label="Mã Hộ Khẩu (Số sổ)" rules={[{required:true, message:'Bắt buộc nhập'}]}><Input placeholder="VD: HK001" /></Form.Item>}
+            <Form.Item name="registrationNumber" label="Số Đăng Ký (Hồ sơ gốc)" rules={[{required:true, message:'Bắt buộc nhập'}]}><Input /></Form.Item>
             <Form.Item name="registrationDate" label="Ngày đăng ký">
                 <DatePicker style={{width: '100%'}} format="YYYY-MM-DD" />
             </Form.Item>
-            <Form.Item name="headCccd" label="Chủ Hộ"><Select showSearch optionFilterProp="children">{peopleOptions.map(p=><Option key={p.value} value={p.value}>{p.label}</Option>)}</Select></Form.Item>
+            <Form.Item name="headCccd" label="Chủ Hộ (CCCD)"><Select showSearch optionFilterProp="children" allowClear>{peopleOptions.map(p=><Option key={p.value} value={p.value}>{p.label}</Option>)}</Select></Form.Item>
             <Form.Item name="residencyType" label="Loại cư trú" initialValue="Thường trú"><Select><Option value="Thường trú">Thường trú</Option><Option value="Tạm trú">Tạm trú</Option></Select></Form.Item>
         </Form>
       </Modal>
 
       <Modal title="Thêm Thành Viên" open={addMemberModalVisible} onCancel={()=>setAddMemberModalVisible(false)} onOk={handleAddMemberToHousehold}>
         <Form form={formMember} layout="vertical">
-            <Form.Item name="personCccd" label="Thành viên" rules={[{required:true}]}><Select showSearch optionFilterProp="children">{peopleOptions.map(p=><Option key={p.value} value={p.value}>{p.label}</Option>)}</Select></Form.Item>
+            <Form.Item name="personCccd" label="Thành viên" rules={[{required:true, message:'Chọn thành viên'}]}><Select showSearch optionFilterProp="children">{peopleOptions.map(p=><Option key={p.value} value={p.value}>{p.label}</Option>)}</Select></Form.Item>
             <Row gutter={16}>
                 <Col span={12}>
                     <Form.Item name="role" label="Vai trò" initialValue="Thành viên">
@@ -139,14 +290,13 @@ const FamilyGraphPage = () => {
                     </Form.Item>
                 </Col>
                 <Col span={12}>
-                    <Form.Item name="relationToHead" label="Quan hệ với Chủ Hộ" rules={[{required:true}]}>
+                    <Form.Item name="relationToHead" label="Quan hệ với Chủ Hộ" rules={[{required:true, message:'Chọn quan hệ'}]}>
                         <Select disabled={currentRole === 'Chủ hộ'}>
                             {currentRole === 'Chủ hộ' ? <Option value="Bản thân">Bản thân</Option> : <><Option value="Vợ">Vợ</Option><Option value="Chồng">Chồng</Option><Option value="Con">Con</Option><Option value="Bố mẹ">Bố mẹ</Option><Option value="Cháu">Cháu</Option><Option value="Khác">Khác</Option></>}
                         </Select>
                     </Form.Item>
                 </Col>
             </Row>
-            <Form.Item name="fromDate" label="Ngày bắt đầu"><DatePicker style={{width:'100%'}} format="YYYY-MM-DD" /></Form.Item>
         </Form>
       </Modal>
       
@@ -168,18 +318,128 @@ const FamilyGraphPage = () => {
         </Form>
       </Modal>
 
-      {/* <Modal title="Sửa Công Dân" open={citizenModalVisible} onCancel={()=>setCitizenModalVisible(false)} onOk={handleUpdateCitizen}><Form form={formCitizen} layout="vertical"><Form.Item name="hoTen" label="Tên"><Input/></Form.Item><Form.Item name="ngaySinh" label="Ngày sinh"><Input/></Form.Item><Form.Item name="gioiTinh" label="Giới tính"><Select><Option value="Nam">Nam</Option><Option value="Nữ">Nữ</Option></Select></Form.Item></Form></Modal> */}
-      <Modal title="Thêm Quan Hệ" open={relModalVisible} onCancel={()=>setRelModalVisible(false)} onOk={handleCreateRelationship}><Form form={formRel} layout="vertical"><Row gutter={16}><Col span={12}><Form.Item name="sourceId" label="Nguồn" rules={[{required:true}]}><Select showSearch optionFilterProp="children">{peopleOptions.map(p=><Option key={p.value} value={p.value}>{p.label}</Option>)}</Select></Form.Item></Col><Col span={12}><Form.Item name="targetId" label="Đích" rules={[{required:true}]}><Select showSearch optionFilterProp="children">{peopleOptions.map(p=><Option key={p.value} value={p.value}>{p.label}</Option>)}</Select></Form.Item></Col></Row><Form.Item name="type" label="Loại" rules={[{required:true}]}><Select><Option value="FATHER_OF">Cha</Option><Option value="MOTHER_OF">Mẹ</Option><Option value="MARRIED_TO">Vợ/Chồng</Option></Select></Form.Item></Form></Modal>
+      <Modal title="Thêm Quan Hệ Gia Đình" open={relModalVisible} onCancel={()=>setRelModalVisible(false)} onOk={handleCreateRelationship}>
+        <Form form={formRel} layout="vertical">
+            <Row gutter={16}>
+                <Col span={12}><Form.Item name="sourceId" label="Người thứ 1 (Nguồn)" rules={[{required:true, message:'Chọn người 1'}]}><Select showSearch optionFilterProp="children">{peopleOptions.map(p=><Option key={p.value} value={p.value}>{p.label}</Option>)}</Select></Form.Item></Col>
+                <Col span={12}><Form.Item name="targetId" label="Người thứ 2 (Đích)" rules={[{required:true, message:'Chọn người 2'}]}><Select showSearch optionFilterProp="children">{peopleOptions.map(p=><Option key={p.value} value={p.value}>{p.label}</Option>)}</Select></Form.Item></Col>
+            </Row>
+            <Form.Item name="type" label="Loại Quan Hệ" rules={[{required:true, message:'Chọn loại'}]}>
+                <Select onChange={() => formRel.setFieldsValue({ properties: {} })}>
+                    <Option value="FATHER_OF">Cha - Con (Người 1 là Cha)</Option>
+                    <Option value="MOTHER_OF">Mẹ - Con (Người 1 là Mẹ)</Option>
+                    <Option value="CHILD_OF">Con - Cha/Mẹ (Người 1 là Con)</Option>
+                    <Option value="MARRIED_TO">Vợ - Chồng (Kết hôn)</Option>
+                    <Option value="SIBLING">Anh Chị Em (Ruột)</Option>
+                </Select>
+            </Form.Item>
+
+            {/* FORM FIELD DYNAMIC DỰA TRÊN TYPE */}
+            <Form.Item noStyle shouldUpdate={(prev, curr) => prev.type !== curr.type}>
+                {({ getFieldValue }) => {
+                    const type = getFieldValue('type');
+                    if (type === 'MARRIED_TO') {
+                        return (
+                            <div style={{background: '#f9f9f9', padding: 10, borderRadius: 4, marginBottom: 16}}>
+                                <Text strong>Thông tin Kết hôn:</Text>
+                                <Row gutter={16} style={{marginTop: 8}}>
+                                    <Col span={12}><Form.Item name={['properties', 'marriageDate']} label="Ngày kết hôn"><DatePicker style={{width:'100%'}} format="YYYY-MM-DD"/></Form.Item></Col>
+                                    <Col span={12}><Form.Item name={['properties', 'marriagePlace']} label="Nơi đăng ký"><Input /></Form.Item></Col>
+                                    <Col span={12}><Form.Item name={['properties', 'certificateNumber']} label="Số giấy chứng nhận"><Input /></Form.Item></Col>
+                                </Row>
+                            </div>
+                        );
+                    }
+                    if (type === 'FATHER_OF' || type === 'MOTHER_OF') {
+                        return (
+                            <div style={{background: '#f9f9f9', padding: 10, borderRadius: 4, marginBottom: 16}}>
+                                <Form.Item name={['properties', 'recognizedDate']} label="Ngày công nhận (nếu có)"><DatePicker style={{width:'100%'}} format="YYYY-MM-DD"/></Form.Item>
+                            </div>
+                        );
+                    }
+                    if (type === 'CHILD_OF') {
+                        return (
+                            <div style={{background: '#f9f9f9', padding: 10, borderRadius: 4, marginBottom: 16}}>
+                                <Row gutter={16}>
+                                    <Col span={12}><Form.Item name={['properties', 'birthOrder']} label="Con thứ"><Input type="number" /></Form.Item></Col>
+                                    <Col span={12}><Form.Item name={['properties', 'isAdopted']} label="Là con nuôi" valuePropName="checked"><Input type="checkbox" style={{width: 20, height: 20, marginTop: 5}} /></Form.Item></Col>
+                                </Row>
+                            </div>
+                        );
+                    }
+                    if (type === 'SIBLING') {
+                        return (
+                            <div style={{background: '#f9f9f9', padding: 10, borderRadius: 4, marginBottom: 16}}>
+                                <Form.Item name={['properties', 'siblingType']} label="Loại quan hệ" initialValue="Ruột"><Select><Option value="Ruột">Ruột</Option><Option value="Nuôi">Nuôi</Option><Option value="Cùng cha khác mẹ">Cùng cha khác mẹ</Option></Select></Form.Item>
+                            </div>
+                        );
+                    }
+                    return null;
+                }}
+            </Form.Item>
+            
+            <div style={{color: '#888', fontSize: '12px'}}>
+                * Hệ thống sẽ tự động tạo mối quan hệ ngược lại (VD: Tạo "Cha" sẽ tự tạo "Con" với đầy đủ thông tin).
+            </div>
+        </Form>
+      </Modal>
+      {/* <Modal title="Thêm Quan Hệ" open={relModalVisible} onCancel={()=>setRelModalVisible(false)} onOk={handleCreateRelationship}>
+        <Form form={formRel} layout="vertical">
+            <Row gutter={16}>
+                <Col span={12}><Form.Item name="sourceId" label="Nguồn (Người 1)" rules={[{required:true, message:'Chọn người 1'}]}><Select showSearch optionFilterProp="children">{peopleOptions.map(p=><Option key={p.value} value={p.value}>{p.label}</Option>)}</Select></Form.Item></Col>
+                <Col span={12}><Form.Item name="targetId" label="Đích (Người 2)" rules={[{required:true, message:'Chọn người 2'}]}><Select showSearch optionFilterProp="children">{peopleOptions.map(p=><Option key={p.value} value={p.value}>{p.label}</Option>)}</Select></Form.Item></Col>
+            </Row>
+            <Form.Item name="type" label="Loại Quan Hệ" rules={[{required:true, message:'Chọn loại'}]}>
+                <Select>
+                    <Option value="FATHER_OF">Cha - Con (Người 1 là Cha)</Option>
+                    <Option value="MOTHER_OF">Mẹ - Con (Người 1 là Mẹ)</Option>
+                    <Option value="MARRIED_TO">Vợ - Chồng (Kết hôn)</Option>
+                    <Option value="SIBLING">Anh Chị Em (Ruột)</Option>
+                </Select>
+            </Form.Item>
+            <div style={{color: '#888', fontSize: '12px'}}>* Lưu ý: Hệ thống sẽ tự động kiểm tra logic (1 vợ 1 chồng, giới tính...)</div>
+        </Form>
+      </Modal> */}
       
-      <Modal zIndex={1001} title="Chi tiết Mối quan hệ" open={linkActionModalVisible} onCancel={() => setLinkActionModalVisible(false)} footer={[<Button key="del" danger icon={<DeleteOutlined />} onClick={handleDeleteLink}>Xóa Quan Hệ</Button>,<Button key="upd" type="primary" onClick={handleUpdateLink}>Cập nhật</Button>]}>{selectedLink && <Form form={formLinkEdit} layout="vertical"><Alert message={selectedLink.label} type="info" showIcon style={{marginBottom:16}}/><Form.Item name="type" label="Loại"><Input disabled /></Form.Item>{dynamicLinkProps.map(prop => { const isDate = prop.toLowerCase().includes('date') || prop.toLowerCase().includes('sinh'); return <Form.Item key={prop} name={prop} label={`Thuộc tính: ${prop}`}>{isDate ? <DatePicker style={{width:'100%'}} format="YYYY-MM-DD" /> : <Input />}</Form.Item> })}<Button type="dashed" block icon={<PlusOutlined />} onClick={()=>{const k=prompt("Tên thuộc tính:");if(k) setDynamicLinkProps([...dynamicLinkProps, k])}}>Thêm thuộc tính</Button></Form>}</Modal>
+      <Modal zIndex={1001} title="Chi tiết Mối quan hệ" open={linkActionModalVisible} onCancel={() => setLinkActionModalVisible(false)} footer={[<Button key="del" danger icon={<DeleteOutlined />} onClick={handleDeleteLink}>Xóa Quan Hệ</Button>,<Button key="upd" type="primary" onClick={handleUpdateLink}>Cập nhật</Button>]}>{selectedLink && <Form form={formLinkEdit} layout="vertical"><Alert message={selectedLink.label} type="info" showIcon style={{marginBottom:16}}/><Form.Item name="type" label="Loại"><Input disabled /></Form.Item>{dynamicLinkProps.map(prop => { const isDate = prop.toLowerCase().includes('date') || prop.toLowerCase().includes('sinh'); return <Form.Item key={prop} name={prop} label={`Thuộc tính: ${prop}`} rules={isDate ? [{ validator: validatePastDate }] : []}>{isDate ? <DatePicker style={{width:'100%'}} format="YYYY-MM-DD" disabledDate={(current) => current && current > dayjs().endOf('day')}/> : <Input />}</Form.Item> })}<Button type="dashed" block icon={<PlusOutlined />} onClick={()=>{const k=prompt("Tên thuộc tính:");if(k) setDynamicLinkProps([...dynamicLinkProps, k])}}>Thêm thuộc tính</Button></Form>}</Modal>
 
       <Drawer title={<div>Cây Phả Hệ: <span style={{color:'#1677ff'}}>{selectedRootName}</span></div>} placement="right" width="100%" onClose={() => setDrawerVisible(false)} open={drawerVisible} destroyOnClose bodyStyle={{padding:0,display:'flex',flexDirection:'column'}}>
         <div style={{flex:3, borderBottom:'1px solid #f0f0f0', position:'relative'}}><FamilyTreeViz graphData={treeData} loading={loadingTree} rootId={selectedRootId} onNodeClick={handleNodeClick} onLinkClick={handleLinkClick} /></div>
         <div style={{flex:1, padding:16, overflow:'auto', background:'#fafafa'}}>
             <Title level={5}><PartitionOutlined /> Danh sách chi tiết quan hệ</Title>
-            <Table dataSource={treeData.links} rowKey="id" size="small" pagination={false} columns={[{ title: 'Nguồn', dataIndex: 'source', render: s => typeof s==='object'?<b>{s.hoTen}</b>:s }, { title: 'Quan hệ', dataIndex: 'label', render: l => <Tag color="orange">{l}</Tag> }, { title: 'Đích', dataIndex: 'target', render: t => typeof t==='object'?<b>{t.hoTen}</b>:t }, { title: 'Thuộc tính', dataIndex: 'properties', render: p => JSON.stringify(p) }, { title: 'Xóa', align: 'right', render: (_, r) => <Popconfirm title="Xóa?" onConfirm={() => handleDeleteRelationshipFromList(r)}><Button size="small" danger icon={<DeleteOutlined />} /></Popconfirm> }]}/>
+            <Table 
+                dataSource={treeData.links} 
+                rowKey="id" 
+                size="small" 
+                pagination={false} 
+                columns={[
+                    { title: 'Nguồn', dataIndex: 'source', render: s => typeof s==='object'?<b>{s.hoTen}</b>:s }, 
+                    { title: 'Quan hệ', dataIndex: 'label', render: l => <Tag color="orange">{l}</Tag> }, 
+                    { title: 'Đích', dataIndex: 'target', render: t => typeof t==='object'?<b>{t.hoTen}</b>:t }, 
+                    { title: 'Thuộc tính', dataIndex: 'properties', render: p => JSON.stringify(p) }, 
+                    { 
+                        title: 'Xóa', 
+                        align: 'right', 
+                        render: (_, r) => (
+                            <Button 
+                                size="small" 
+                                danger 
+                                icon={<DeleteOutlined />} 
+                                onClick={() => handleDeleteRelationshipFromList(r)} 
+                            />
+                        ) 
+                    }
+                ]}
+            />
         </div>
       </Drawer>
+      {/* <Drawer title={<div>Cây Phả Hệ: <span style={{color:'#1677ff'}}>{selectedRootName}</span></div>} placement="right" width="100%" onClose={() => setDrawerVisible(false)} open={drawerVisible} destroyOnClose bodyStyle={{padding:0,display:'flex',flexDirection:'column'}}>
+        <div style={{flex:3, borderBottom:'1px solid #f0f0f0', position:'relative'}}><FamilyTreeViz graphData={treeData} loading={loadingTree} rootId={selectedRootId} onNodeClick={handleNodeClick} onLinkClick={handleLinkClick} /></div>
+        <div style={{flex:1, padding:16, overflow:'auto', background:'#fafafa'}}>
+            <Title level={5}><PartitionOutlined /> Danh sách chi tiết quan hệ</Title>
+            <Table dataSource={treeData.links} rowKey="id" size="small" pagination={false} columns={[{ title: 'Nguồn', dataIndex: 'source', render: s => typeof s==='object'?<b>{s.hoTen}</b>:s }, { title: 'Quan hệ', dataIndex: 'label', render: l => <Tag color="orange">{l}</Tag> }, { title: 'Đích', dataIndex: 'target', render: t => typeof t==='object'?<b>{t.hoTen}</b>:t }, { title: 'Thuộc tính', dataIndex: 'properties', render: p => JSON.stringify(p) }, { title: 'Xóa', align: 'right', render: (_, r) => <Popconfirm title="Xóa?" onConfirm={() => handleDeleteRelationshipFromList(r)}><Button size="small" danger icon={<DeleteOutlined />} /></Popconfirm> }]}/>
+        </div>
+      </Drawer> */}
     </div>
   );
 };

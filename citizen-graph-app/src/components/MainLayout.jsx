@@ -22,7 +22,7 @@ const items = [
   getItem('Tài sản & Sở hữu', '/assets', <CarOutlined />),
   getItem('An ninh & Tội phạm', '/security', <AlertOutlined />),
   getItem('Y tế & Dịch tễ', '/health', <MedicineBoxOutlined />),
-  getItem('Truy vết Graph', '/trace', <PartitionOutlined />),
+  getItem('Truy vết', '/trace', <PartitionOutlined />),
 ];
 
 // Menu dropdown cho User Admin

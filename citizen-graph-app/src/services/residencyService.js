@@ -146,4 +146,3 @@ const residencyService = {
 };
 
 export default residencyService;
-

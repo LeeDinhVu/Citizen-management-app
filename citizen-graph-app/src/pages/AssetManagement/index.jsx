@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Tabs, Card, Button, Tag, Typography, Table,
   notification, Statistic, Row, Col, Modal, Descriptions, Form, Select, Input,
-  Popconfirm, Space, Alert, Empty
+  Popconfirm, Space, Alert, Empty, InputNumber // ĐÃ THÊM InputNumber
 } from 'antd';
 import {
   WalletOutlined, HomeOutlined, CarOutlined, ApartmentOutlined,
@@ -62,7 +62,6 @@ const AssetManagementPage = () => {
     try {
       const res = await axios.get(`${API_ASSETS}/dashboard`);
       if (res.data) {
-        // Lưu ý: JSON trả về thường là camelCase (realEstate, vehicle...)
         setStats(res.data.statistics);
         setOwners(res.data.ownersGrid || []);
       }
@@ -110,6 +109,8 @@ const AssetManagementPage = () => {
   const openAddAsset = () => {
     setEditingAsset(null);
     formAsset.resetFields();
+    // Set default values để tránh lỗi validate min
+    formAsset.setFieldsValue({ valueVND: 0, area: 0, registeredCapital: 0 }); 
     setAssetModalVisible(true);
   };
 
@@ -136,7 +137,9 @@ const AssetManagementPage = () => {
       fetchDashboard();
       fetchDropdownAssets();
     } catch (err) { 
-      notification.error({ message: 'Lỗi', description: err.response?.data?.message || err.message });
+      // Hiển thị lỗi từ backend (ví dụ: Giá trị không được âm)
+      const errorMsg = err.response?.data?.message || err.response?.data || err.message;
+      notification.error({ message: 'Lỗi', description: typeof errorMsg === 'string' ? errorMsg : 'Kiểm tra lại dữ liệu nhập' });
     }
   };
 
@@ -161,7 +164,9 @@ const AssetManagementPage = () => {
       formAssign.resetFields(); 
       fetchDashboard(); 
     } catch (err) {
-      notification.error({ message: 'Lỗi', description: err.response?.data?.message || 'Gán thất bại' });
+      // Bắt lỗi cụ thể từ Backend (ví dụ: Chưa đủ 18 tuổi)
+      const errorMsg = err.response?.data?.message || err.response?.data || 'Gán thất bại';
+      notification.error({ message: 'Thao tác thất bại', description: errorMsg });
     }
   };
 
@@ -178,8 +183,6 @@ const AssetManagementPage = () => {
 
   // --- RENDER FUNCTIONS ---
   const renderDashboard = () => {
-    // SỬA: Chuyển các key truy cập sang camelCase để khớp với JSON chuẩn trả về từ C#
-    // Ví dụ: stats.realEstate.count thay vì stats.RealEstate.Count
     return (
       <div>
       {stats && (
@@ -188,7 +191,6 @@ const AssetManagementPage = () => {
             <Card>
               <Statistic
                 title="Bất động sản"
-                // Sửa ở đây: realEstate, count, value
                 value={stats.realEstate?.count || 0}
                 prefix={<ApartmentOutlined />}
                 valueStyle={{ color: '#722ed1' }}
@@ -200,7 +202,6 @@ const AssetManagementPage = () => {
             <Card>
               <Statistic
                 title="Phương tiện"
-                // Sửa ở đây: vehicle, count, value
                 value={stats.vehicle?.count || 0}
                 prefix={<CarOutlined />}
                 valueStyle={{ color: '#08979c' }}
@@ -212,7 +213,6 @@ const AssetManagementPage = () => {
             <Card>
               <Statistic
                 title="Doanh nghiệp"
-                // Sửa ở đây: business, count, value
                 value={stats.business?.count || 0}
                 prefix={<ShopOutlined />}
                 valueStyle={{ color: '#d4380d' }}
@@ -342,7 +342,7 @@ const AssetManagementPage = () => {
           }} icon={<DisconnectOutlined />}>Gỡ Sở Hữu</Button>
         ]}
       >
-        <Alert message="Hướng dẫn: Chọn loại tài sản, sau đó tìm kiếm CCCD và ID tài sản để xử lý." type="info" showIcon style={{ marginBottom: 24 }} />
+        <Alert message="Lưu ý: Chỉ công dân từ 18 tuổi trở lên mới được phép đứng tên sở hữu tài sản." type="warning" showIcon style={{ marginBottom: 24 }} />
         <Form form={formAssign} layout="vertical">
           
           {/* 1. CHỌN LOẠI TÀI SẢN */}
@@ -354,7 +354,7 @@ const AssetManagementPage = () => {
              </Select>
           </Form.Item>
 
-          {/* 2. CHỌN CÔNG DÂN (ListDown search từ owners) */}
+          {/* 2. CHỌN CÔNG DÂN */}
           <Form.Item name="cccd" label="CCCD Công dân" rules={[{ required: true, message: 'Vui lòng chọn công dân' }]}>
             <Select 
               showSearch 
@@ -370,7 +370,7 @@ const AssetManagementPage = () => {
             />
           </Form.Item>
 
-          {/* 3. CHỌN TÀI SẢN (ListDown search từ dropdownAssets) */}
+          {/* 3. CHỌN TÀI SẢN */}
           <Form.Item name="assetId" label="ID Tài sản" rules={[{ required: true, message: 'Vui lòng chọn tài sản' }]}>
              <Select 
                 showSearch 
@@ -418,30 +418,73 @@ const AssetManagementPage = () => {
         open={assetModalVisible} 
         onCancel={() => setAssetModalVisible(false)} 
         onOk={handleSaveAsset}
+        width={700}
       >
         <Form form={formAsset} layout="vertical">
+          {/* SỬA: DÙNG InputNumber VÀ THÊM VALIDATE HIỆN ĐẠI */}
           {activeAssetType === 'RealEstate' && (
             <>
-              <Form.Item name="legalDocument" label="Số giấy tờ / Sổ đỏ" rules={[{required: true}]}><Input /></Form.Item>
-              <Form.Item name="area" label="Diện tích (m²)"><Input type="number" /></Form.Item>
-              <Form.Item name="valueVND" label="Giá trị (VNĐ)" rules={[{required: true}]}><Input type="number" /></Form.Item>
+              <Form.Item name="legalDocument" label="Số giấy tờ / Sổ đỏ" rules={[{required: true, message: 'Vui lòng nhập số giấy tờ'}]}><Input /></Form.Item>
+              <Row gutter={16}>
+                <Col span={12}>
+                    <Form.Item name="area" label="Diện tích (m²)" rules={[{required: true, message: 'Nhập diện tích'}, { type: 'number', min: 0.1, message: 'Diện tích phải > 0' }]}>
+                        <InputNumber style={{width: '100%'}} min={0} step={0.1} />
+                    </Form.Item>
+                </Col>
+                <Col span={12}>
+                    <Form.Item name="assetType" label="Loại BĐS" initialValue="Nhà ở">
+                        <Select>
+                            <Option value="Nhà ở">Nhà ở</Option>
+                            <Option value="Đất">Đất đai</Option>
+                            <Option value="Chung cư">Căn hộ chung cư</Option>
+                        </Select>
+                    </Form.Item>
+                </Col>
+              </Row>
+              <Form.Item name="valueVND" label="Giá trị định giá" rules={[{required: true, message: 'Nhập giá trị'}, { type: 'number', min: 0, message: 'Giá trị không được âm' }]}>
+                 <InputNumber 
+                    style={{width: '100%'}} 
+                    formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                    parser={value => value.replace(/\$\s?|(,*)/g, '')}
+                    addonAfter="VNĐ"
+                    min={0}
+                 />
+              </Form.Item>
             </>
           )}
+
           {activeAssetType === 'Vehicle' && (
             <>
-              <Form.Item name="licensePlate" label="Biển số xe" rules={[{required: true}]}><Input /></Form.Item>
+              <Form.Item name="licensePlate" label="Biển số xe" rules={[{required: true, message: 'Bắt buộc nhập biển số'}]}><Input placeholder="VD: 59A-123.45" /></Form.Item>
               <Row gutter={16}>
-                <Col span={12}><Form.Item name="brand" label="Hãng xe"><Input /></Form.Item></Col>
-                <Col span={12}><Form.Item name="model" label="Dòng xe"><Input /></Form.Item></Col>
+                <Col span={12}><Form.Item name="brand" label="Hãng xe"><Input placeholder="Toyota, Honda..." /></Form.Item></Col>
+                <Col span={12}><Form.Item name="model" label="Dòng xe"><Input placeholder="Camry, SH..." /></Form.Item></Col>
               </Row>
-              <Form.Item name="valueVND" label="Giá trị (VNĐ)" rules={[{required: true}]}><Input type="number" /></Form.Item>
+              <Form.Item name="valueVND" label="Giá trị xe" rules={[{required: true, message: 'Nhập giá trị'}, { type: 'number', min: 0, message: 'Không được âm' }]}>
+                 <InputNumber 
+                    style={{width: '100%'}} 
+                    formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                    parser={value => value.replace(/\$\s?|(,*)/g, '')}
+                    addonAfter="VNĐ"
+                    min={0}
+                 />
+              </Form.Item>
             </>
           )}
+
           {activeAssetType === 'Business' && (
             <>
-              <Form.Item name="businessName" label="Tên doanh nghiệp" rules={[{required: true}]}><Input /></Form.Item>
-              <Form.Item name="taxCode" label="Mã số thuế" rules={[{required: true}]}><Input /></Form.Item>
-              <Form.Item name="registeredCapital" label="Vốn điều lệ (VNĐ)" rules={[{required: true}]}><Input type="number" /></Form.Item>
+              <Form.Item name="businessName" label="Tên doanh nghiệp" rules={[{required: true, message: 'Nhập tên doanh nghiệp'}]}><Input /></Form.Item>
+              <Form.Item name="taxCode" label="Mã số thuế" rules={[{required: true, message: 'Nhập mã số thuế'}]}><Input /></Form.Item>
+              <Form.Item name="registeredCapital" label="Vốn điều lệ" rules={[{required: true, message: 'Nhập vốn'}, { type: 'number', min: 1000000, message: 'Vốn tối thiểu 1 triệu' }]}>
+                 <InputNumber 
+                    style={{width: '100%'}} 
+                    formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                    parser={value => value.replace(/\$\s?|(,*)/g, '')}
+                    addonAfter="VNĐ"
+                    min={0}
+                 />
+              </Form.Item>
             </>
           )}
         </Form>
@@ -500,481 +543,3 @@ const AssetManagementPage = () => {
 };
 
 export default AssetManagementPage;
-
-
-// import React, { useState, useEffect } from 'react';
-// import {
-//   Tabs, Card, Button, Tag, Typography, Table,
-//   notification, Statistic, Row, Col, Modal, Descriptions, Form, Select, Input,
-//   Popconfirm, Space, Alert, Empty
-// } from 'antd';
-// import {
-//   WalletOutlined, HomeOutlined, CarOutlined, ApartmentOutlined,
-//   ShopOutlined, PlusOutlined, DeleteOutlined, EditOutlined,
-//   LinkOutlined, DisconnectOutlined, RedoOutlined, UserOutlined,
-//   SearchOutlined, BarChartOutlined, TagOutlined
-// } from '@ant-design/icons';
-// import axios from 'axios';
-
-// const { Title } = Typography;
-// const { Option } = Select;
-
-// // Đảm bảo Backend C# đang chạy ở port 5000 (http)
-// const API_URL = 'http://localhost:5000/api/assets'; 
-
-// const AssetManagementPage = () => {
-//   // --- STATE ---
-//   const [stats, setStats] = useState(null);
-//   const [owners, setOwners] = useState([]);
-//   const [assets, setAssets] = useState([]); 
-//   const [activeAssetType, setActiveAssetType] = useState('RealEstate'); 
-
-//   const [loadingDashboard, setLoadingDashboard] = useState(false);
-//   const [loadingAssets, setLoadingAssets] = useState(false);
-  
-//   // Modals Visibility
-//   const [assetModalVisible, setAssetModalVisible] = useState(false);
-//   const [detailModalVisible, setDetailModalVisible] = useState(false);
-  
-//   // Selection & Editing
-//   const [selectedOwner, setSelectedOwner] = useState(null);
-//   const [editingAsset, setEditingAsset] = useState(null); 
-//   const [searchText, setSearchText] = useState('');
-
-//   // Forms
-//   const [formAsset] = Form.useForm();
-//   const [formAssign] = Form.useForm();
-
-//   // --- EFFECT ---
-//   useEffect(() => { fetchData(); }, []);
-  
-//   useEffect(() => { 
-//     if (activeAssetType) fetchAssets(); 
-//     // eslint-disable-next-line react-hooks/exhaustive-deps
-//   }, [activeAssetType]);
-
-//   // --- API HELPER FUNCTIONS ---
-//   const fetchData = () => { fetchDashboard(); fetchAssets(); };
-
-//   const fetchDashboard = async () => {
-//     setLoadingDashboard(true);
-//     try {
-//       console.log(`%c[API CALL] GET ${API_URL}/dashboard...`, 'color: blue; font-weight: bold;');
-//       const res = await axios.get(`${API_URL}/dashboard`);
-      
-//       // --- LOGGING DATA FROM BACKEND ---
-//       console.log('%c[API RESPONSE] Dashboard Raw Data:', 'color: green; font-weight: bold;', res.data);
-      
-//       if (res.data) {
-//         // Cập nhật State dùng key chữ thường (camelCase)
-//         setStats(res.data.statistics);
-//         setOwners(res.data.ownersGrid || []);
-//       }
-//     } catch (err) {
-//       console.error('❌ [API ERROR] Dashboard Failed:', err);
-//       notification.error({ 
-//         message: 'Lỗi kết nối', 
-//         description: 'Không thể tải dữ liệu Dashboard. Hãy kiểm tra Console (F12) để biết chi tiết.' 
-//       });
-//     } finally {
-//       setLoadingDashboard(false);
-//     }
-//   };
-
-//   const fetchAssets = async () => {
-//     setLoadingAssets(true);
-//     try {
-//       const res = await axios.get(`${API_URL}/assets/${activeAssetType}`);
-//       setAssets(Array.isArray(res.data) ? res.data : []);
-//     } catch (err) {
-//       console.error(`[API ERROR] Assets (${activeAssetType}) Failed:`, err);
-//       notification.error({ message: 'Lỗi', description: `Không thể tải danh sách ${activeAssetType}` });
-//       setAssets([]);
-//     } finally {
-//       setLoadingAssets(false);
-//     }
-//   };
-
-//   const viewOwnerDetail = async (cccd) => {
-//     try {
-//       console.log(`[API CALL] Detail for CCCD=${cccd}`);
-//       const res = await axios.get(`${API_URL}/detail/${cccd}`);
-//       console.log('[API RESPONSE] Detail Data:', res.data);
-      
-//       if (res.data) {
-//         setSelectedOwner(res.data);
-//         setDetailModalVisible(true);
-//       }
-//     } catch (err) {
-//       console.error('[API ERROR] Detail Failed:', err);
-//       notification.error({ message: 'Lỗi', description: 'Không tìm thấy thông tin chi tiết' });
-//     }
-//   };
-
-//   // --- HANDLERS ---
-//   const openAddAsset = () => {
-//     setEditingAsset(null);
-//     formAsset.resetFields();
-//     setAssetModalVisible(true);
-//   };
-
-//   const openEditAsset = (record) => {
-//     setEditingAsset(record);
-//     formAsset.setFieldsValue(record);
-//     setAssetModalVisible(true);
-//   };
-
-//   const handleSaveAsset = async () => {
-//     try {
-//       const values = await formAsset.validateFields();
-//       if (editingAsset) {
-//         const idField = activeAssetType === 'RealEstate' ? 'assetId' : activeAssetType === 'Vehicle' ? 'vehicleId' : 'businessId';
-//         const id = editingAsset[idField];
-//         await axios.put(`${API_URL}/assets/${activeAssetType}/${id}`, values);
-//         notification.success({ message: 'Thành công', description: 'Cập nhật tài sản thành công' });
-//       } else {
-//         await axios.post(`${API_URL}/assets/${activeAssetType}`, values);
-//         notification.success({ message: 'Thành công', description: 'Tạo tài sản mới thành công' });
-//       }
-//       setAssetModalVisible(false);
-//       fetchAssets();
-//       fetchDashboard();
-//     } catch (err) {
-//       notification.error({ message: 'Lỗi', description: err.response?.data?.message || err.message });
-//     }
-//   };
-
-//   const handleDeleteAsset = async (record) => {
-//     const id = record.assetId || record.vehicleId || record.businessId;
-//     try {
-//       await axios.delete(`${API_URL}/assets/${activeAssetType}/${id}`);
-//       notification.success({ message: 'Thành công', description: 'Đã xóa tài sản' });
-//       fetchAssets();
-//       fetchDashboard();
-//     } catch (err) {
-//       notification.error({ message: 'Lỗi', description: 'Xóa thất bại' });
-//     }
-//   };
-
-//   const handleAssignOwnership = async () => {
-//     try {
-//       const values = await formAssign.validateFields();
-//       await axios.post(`${API_URL}/ownership/assign`, values);
-//       notification.success({ message: 'Thành công', description: 'Gán quyền sở hữu thành công' });
-//       formAssign.resetFields(); 
-//       fetchDashboard(); 
-//     } catch (err) {
-//       notification.error({ message: 'Lỗi', description: err.response?.data?.message || 'Gán thất bại' });
-//     }
-//   };
-
-//   const handleUnassignOwnership = async () => {
-//     try {
-//       const values = await formAssign.validateFields();
-//       await axios.post(`${API_URL}/ownership/unassign`, values);
-//       notification.success({ message: 'Thành công', description: 'Đã gỡ quyền sở hữu' });
-//       fetchDashboard();
-//     } catch (err) {
-//       notification.error({ message: 'Lỗi', description: err.response?.data?.message || 'Gỡ thất bại' });
-//     }
-//   };
-
-//   // --- RENDER FUNCTIONS ---
-//   const renderDashboard = () => {
-//     return (
-//       <div>
-//         {stats && (
-//           <Row gutter={16} style={{ marginBottom: 24 }}>
-//             <Col span={8}>
-//               <Card bordered={false}>
-//                 <Statistic 
-//                   title="Bất động sản" 
-//                   value={stats.realEstate?.count || 0} 
-//                   prefix={<ApartmentOutlined />} 
-//                   valueStyle={{ color: '#722ed1' }}
-//                   suffix={<small style={{fontSize: 12, color: '#888'}}>({new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.realEstate?.value || 0)})</small>}
-//                 />
-//               </Card>
-//             </Col>
-//             <Col span={8}>
-//               <Card bordered={false}>
-//                 <Statistic 
-//                   title="Phương tiện" 
-//                   value={stats.vehicle?.count || 0} 
-//                   prefix={<CarOutlined />} 
-//                   valueStyle={{ color: '#08979c' }}
-//                   suffix={<small style={{fontSize: 12, color: '#888'}}>({new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.vehicle?.value || 0)})</small>}
-//                 />
-//               </Card>
-//             </Col>
-//             <Col span={8}>
-//               <Card bordered={false}>
-//                 <Statistic 
-//                   title="Doanh nghiệp" 
-//                   value={stats.business?.count || 0} 
-//                   prefix={<ShopOutlined />} 
-//                   valueStyle={{ color: '#d4380d' }}
-//                   suffix={<small style={{fontSize: 12, color: '#888'}}>({new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.business?.value || 0)})</small>}
-//                 />
-//               </Card>
-//             </Col>
-//           </Row>
-//         )}
-
-//         {!stats && !loadingDashboard && <Empty description="Không có dữ liệu thống kê" />}
-
-//         <Card title={<span><BarChartOutlined /> Top 100 Công dân có tài sản lớn nhất</span>}>
-//           <Table
-//             dataSource={owners}
-//             rowKey="cccd"
-//             loading={loadingDashboard}
-//             pagination={{ pageSize: 10 }}
-//             columns={[
-//               {
-//                 title: 'Họ tên',
-//                 dataIndex: 'hoTen',
-//                 render: (t, r) => <a onClick={() => viewOwnerDetail(r.cccd)}><b><UserOutlined /> {t}</b></a>
-//               },
-//               { title: 'CCCD', dataIndex: 'cccd', render: t => <Tag color="blue">{t}</Tag> },
-//               { title: 'BĐS', dataIndex: 'soLuongBDS', align: 'center', render: v => v > 0 ? <Tag color="purple">{v}</Tag> : '-' },
-//               { title: 'Xe', dataIndex: 'soLuongXe', align: 'center', render: v => v > 0 ? <Tag color="cyan">{v}</Tag> : '-' },
-//               { title: 'DN', dataIndex: 'soLuongDN', align: 'center', render: v => v > 0 ? <Tag color="orange">{v}</Tag> : '-' },
-//               {
-//                 title: 'Tổng Giá Trị',
-//                 dataIndex: 'tongGiaTri',
-//                 align: 'right',
-//                 render: v => <span style={{ color: '#cf1322', fontWeight: 600 }}>{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(v)}</span>
-//               },
-//             ]}
-//           />
-//         </Card>
-//       </div>
-//     );
-//   };
-
-//   const renderAssets = () => {
-//     const getColumns = () => {
-//       const common = [
-//         { title: 'ID', dataIndex: activeAssetType === 'RealEstate' ? 'assetId' : activeAssetType === 'Vehicle' ? 'vehicleId' : 'businessId', render: t => <Tag>{t}</Tag> }
-//       ];
-      
-//       let specific = [];
-//       if (activeAssetType === 'RealEstate') {
-//         specific = [
-//           { title: 'Giấy tờ', dataIndex: 'legalDocument' },
-//           { title: 'Diện tích', dataIndex: 'area', render: v => v ? `${v} m²` : '-' },
-//           { title: 'Giá trị', dataIndex: 'valueVND', render: v => new Intl.NumberFormat('vi-VN').format(v) + ' VNĐ' }
-//         ];
-//       } else if (activeAssetType === 'Vehicle') {
-//         specific = [
-//           { title: 'Biển số', dataIndex: 'licensePlate', render: t => <Tag color="geekblue">{t}</Tag> },
-//           { title: 'Hãng/Dòng', render: (_,r) => `${r.brand || ''} ${r.model || ''}` },
-//           { title: 'Giá trị', dataIndex: 'valueVND', render: v => new Intl.NumberFormat('vi-VN').format(v) + ' VNĐ' }
-//         ];
-//       } else {
-//         specific = [
-//           { title: 'Doanh nghiệp', dataIndex: 'businessName', render: t => <b>{t}</b> },
-//           { title: 'MST', dataIndex: 'taxCode' },
-//           { title: 'Vốn', dataIndex: 'registeredCapital', render: v => new Intl.NumberFormat('vi-VN').format(v) + ' VNĐ' }
-//         ];
-//       }
-
-//       return [
-//         ...common, 
-//         ...specific, 
-//         {
-//           title: 'Hành động', align: 'right',
-//           render: (_, r) => (
-//             <Space>
-//               <Button size="small" icon={<EditOutlined />} onClick={() => openEditAsset(r)} />
-//               <Popconfirm title="Xóa tài sản này?" onConfirm={() => handleDeleteAsset(r)}>
-//                 <Button size="small" danger icon={<DeleteOutlined />} />
-//               </Popconfirm>
-//             </Space>
-//           )
-//         }
-//       ];
-//     };
-
-//     const safeAssets = Array.isArray(assets) ? assets : [];
-//     const filteredAssets = safeAssets.filter(item => 
-//       JSON.stringify(item).toLowerCase().includes(searchText.toLowerCase())
-//     );
-
-//     return (
-//       <div>
-//         <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-//           <Space>
-//             <Select 
-//               value={activeAssetType} 
-//               onChange={setActiveAssetType} 
-//               style={{ width: 200 }} 
-//               size="large"
-//             >
-//               <Option value="RealEstate"><ApartmentOutlined /> Bất động sản</Option>
-//               <Option value="Vehicle"><CarOutlined /> Phương tiện</Option>
-//               <Option value="Business"><ShopOutlined /> Doanh nghiệp</Option>
-//             </Select>
-//             <Input 
-//               prefix={<SearchOutlined />} 
-//               placeholder="Tìm kiếm..." 
-//               onChange={e => setSearchText(e.target.value)} 
-//               style={{ width: 250 }} 
-//             />
-//           </Space>
-//           <Button type="primary" icon={<PlusOutlined />} onClick={openAddAsset} size="large">Thêm Tài sản</Button>
-//         </div>
-
-//         <Table
-//           dataSource={filteredAssets}
-//           columns={getColumns()}
-//           rowKey={r => r.assetId || r.vehicleId || r.businessId}
-//           loading={loadingAssets}
-//           locale={{ emptyText: <Empty description="Chưa có dữ liệu" /> }}
-//         />
-//       </div>
-//     );
-//   };
-
-//   const renderOwnership = () => (
-//     <div style={{ display: 'flex', justifyContent: 'center', marginTop: 32 }}>
-//       <Card 
-//         title={<span><LinkOutlined /> Gán hoặc Gỡ quyền sở hữu</span>} 
-//         style={{ width: 600, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-//         actions={[
-//           <Button type="primary" block onClick={handleAssignOwnership} icon={<LinkOutlined />}>Gán Sở Hữu</Button>,
-//           <Button danger block onClick={() => {
-//              Modal.confirm({
-//                title: 'Xác nhận gỡ quyền sở hữu?',
-//                content: 'Hành động này sẽ xóa liên kết giữa người và tài sản.',
-//                onOk: handleUnassignOwnership
-//              })
-//           }} icon={<DisconnectOutlined />}>Gỡ Sở Hữu</Button>
-//         ]}
-//       >
-//         <Alert message="Hướng dẫn: Chọn loại tài sản, nhập CCCD và ID tài sản để xử lý." type="info" showIcon style={{ marginBottom: 24 }} />
-//         <Form form={formAssign} layout="vertical">
-//           <Form.Item name="AssetType" label="Loại Tài sản" initialValue="RealEstate">
-//              <Select>
-//                 <Option value="RealEstate">Bất động sản</Option>
-//                 <Option value="Vehicle">Phương tiện</Option>
-//                 <Option value="Business">Doanh nghiệp</Option>
-//              </Select>
-//           </Form.Item>
-//           <Form.Item name="cccd" label="CCCD Công dân" rules={[{ required: true }]}>
-//             <Input prefix={<UserOutlined />} placeholder="Ví dụ: 00109000..." />
-//           </Form.Item>
-//           <Form.Item name="assetId" label="ID Tài sản" rules={[{ required: true }]}>
-//              <Input prefix={<TagOutlined />} placeholder="Ví dụ: RE001, VH123..." />
-//           </Form.Item>
-//         </Form>
-//       </Card>
-//     </div>
-//   );
-
-//   return (
-//     <div style={{ padding: 24, background: '#f0f2f5', minHeight: '100vh' }}>
-//       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-//           <Title level={2} style={{margin: 0, color: '#001529'}}>Quản lý Tài sản & Sở hữu</Title>
-//           <Button icon={<RedoOutlined />} onClick={fetchData}>Làm mới dữ liệu</Button>
-//       </div>
-
-//       <div style={{ background: '#fff', padding: 24, borderRadius: 8 }}>
-//         <Tabs defaultActiveKey="1" items={[
-//             { key: '1', label: <span><HomeOutlined /> Tổng quan (Dashboard)</span>, children: renderDashboard() },
-//             { key: '2', label: <span><WalletOutlined /> Kho Tài sản</span>, children: renderAssets() },
-//             { key: '3', label: <span><LinkOutlined /> Quản lý Liên kết</span>, children: renderOwnership() }
-//         ]} size="large" />
-//       </div>
-
-//       <Modal 
-//         title={editingAsset ? "Cập nhật Tài sản" : "Thêm Tài sản mới"} 
-//         open={assetModalVisible} 
-//         onCancel={() => setAssetModalVisible(false)} 
-//         onOk={handleSaveAsset}
-//       >
-//         <Form form={formAsset} layout="vertical">
-//           {activeAssetType === 'RealEstate' && (
-//             <>
-//               <Form.Item name="legalDocument" label="Số giấy tờ / Sổ đỏ" rules={[{required: true}]}><Input /></Form.Item>
-//               <Form.Item name="area" label="Diện tích (m²)"><Input type="number" /></Form.Item>
-//               <Form.Item name="valueVND" label="Giá trị (VNĐ)" rules={[{required: true}]}><Input type="number" /></Form.Item>
-//             </>
-//           )}
-//           {activeAssetType === 'Vehicle' && (
-//             <>
-//               <Form.Item name="licensePlate" label="Biển số xe" rules={[{required: true}]}><Input /></Form.Item>
-//               <Row gutter={16}>
-//                 <Col span={12}><Form.Item name="brand" label="Hãng xe"><Input /></Form.Item></Col>
-//                 <Col span={12}><Form.Item name="model" label="Dòng xe"><Input /></Form.Item></Col>
-//               </Row>
-//               <Form.Item name="valueVND" label="Giá trị (VNĐ)" rules={[{required: true}]}><Input type="number" /></Form.Item>
-//             </>
-//           )}
-//           {activeAssetType === 'Business' && (
-//             <>
-//               <Form.Item name="businessName" label="Tên doanh nghiệp" rules={[{required: true}]}><Input /></Form.Item>
-//               <Form.Item name="taxCode" label="Mã số thuế" rules={[{required: true}]}><Input /></Form.Item>
-//               <Form.Item name="registeredCapital" label="Vốn điều lệ (VNĐ)" rules={[{required: true}]}><Input type="number" /></Form.Item>
-//             </>
-//           )}
-//         </Form>
-//       </Modal>
-
-//       <Modal 
-//         title="Chi tiết Tài sản Công dân" 
-//         open={detailModalVisible} 
-//         onCancel={() => setDetailModalVisible(false)} 
-//         footer={null} 
-//         width={900}
-//       >
-//         {selectedOwner && (
-//           <div>
-//             <Descriptions bordered size="small" column={2} style={{ marginBottom: 24 }}>
-//               {/* SỬA LỖI: person.hoTen (chữ thường) */}
-//               <Descriptions.Item label="Họ tên">{selectedOwner.person?.hoTen}</Descriptions.Item>
-//               <Descriptions.Item label="CCCD">{selectedOwner.person?.cccd}</Descriptions.Item>
-//               <Descriptions.Item label="Ngày sinh">{selectedOwner.person?.ngaySinh || '-'}</Descriptions.Item>
-//               <Descriptions.Item label="Địa chỉ">{selectedOwner.person?.thuongTru || '-'}</Descriptions.Item>
-//             </Descriptions>
-            
-//             <Tabs defaultActiveKey="re" items={[
-//               {
-//                 key: 're',
-//                 // SỬA LỖI: realEstates (chữ thường)
-//                 label: `Bất động sản (${selectedOwner.realEstates?.length || 0})`,
-//                 children: <Table dataSource={selectedOwner.realEstates || []} rowKey="assetId" pagination={false} columns={[
-//                    { title: 'Giấy tờ', dataIndex: 'legalDocument' },
-//                    { title: 'Diện tích', dataIndex: 'area', render: v => v ? v + ' m²' : '-' },
-//                    { title: 'Giá trị', dataIndex: 'valueVND', render: v => v ? new Intl.NumberFormat('vi-VN').format(v) : '-' }
-//                 ]} />
-//               },
-//               {
-//                 key: 've',
-//                 // SỬA LỖI: vehicles (chữ thường)
-//                 label: `Phương tiện (${selectedOwner.vehicles?.length || 0})`,
-//                 children: <Table dataSource={selectedOwner.vehicles || []} rowKey="vehicleId" pagination={false} columns={[
-//                    { title: 'Biển số', dataIndex: 'licensePlate' },
-//                    { title: 'Hãng/Model', render: (_,r) => `${r.brand} ${r.model}` },
-//                    { title: 'Giá trị', dataIndex: 'valueVND', render: v => v ? new Intl.NumberFormat('vi-VN').format(v) : '-' }
-//                 ]} />
-//               },
-//               {
-//                 key: 'biz',
-//                 // SỬA LỖI: businesses (chữ thường)
-//                 label: `Doanh nghiệp (${selectedOwner.businesses?.length || 0})`,
-//                 children: <Table dataSource={selectedOwner.businesses || []} rowKey="businessId" pagination={false} columns={[
-//                    { title: 'Tên DN', dataIndex: 'businessName' },
-//                    { title: 'MST', dataIndex: 'taxCode' },
-//                    { title: 'Vốn', dataIndex: 'registeredCapital', render: v => v ? new Intl.NumberFormat('vi-VN').format(v) : '-' }
-//                 ]} />
-//               }
-//             ]} />
-//           </div>
-//         )}
-//       </Modal>
-//     </div>
-//   );
-// };
-
-// export default AssetManagementPage;

@@ -201,93 +201,29 @@ namespace CitizenGraph.Backend.Controllers
                 if (!DateTime.TryParse(props["ngaySinh"].ToString(), out dob))
                     return BadRequest(new { message = "Định dạng ngày sinh không hợp lệ." });
 
+                // Ràng buộc tuổi: Phải >= 18
                 var age = DateTime.Now.Year - dob.Year;
                 if (dob > DateTime.Now.AddYears(-age)) age--;
                 
-                bool isChild = age < 18;
-
-                if (isChild)
+                if (age < 18)
                 {
-                    string fatherCCCD = props.ContainsKey("fatherCCCD") ? props["fatherCCCD"]?.ToString() : null;
-                    string motherCCCD = props.ContainsKey("motherCCCD") ? props["motherCCCD"]?.ToString() : null;
-
-                    if (string.IsNullOrEmpty(fatherCCCD) && string.IsNullOrEmpty(motherCCCD))
-                        return BadRequest(new { message = "Trẻ em cần nhập CCCD của ít nhất Cha hoặc Mẹ." });
-
-                    // Validate tồn tại và giới tính
-                    if (!string.IsNullOrEmpty(fatherCCCD))
-                    {
-                        var checkF = await _repository.RunAsync("MATCH (f:Person {cccd: $id, gioiTinh: 'Nam'}) RETURN count(f) as c", new { id = fatherCCCD });
-                        if (checkF.First()["c"].As<long>() == 0) return BadRequest(new { message = $"CCCD Cha ({fatherCCCD}) không tồn tại hoặc sai giới tính (phải là Nam)." });
-                    }
-
-                    if (!string.IsNullOrEmpty(motherCCCD))
-                    {
-                        var checkM = await _repository.RunAsync("MATCH (m:Person {cccd: $id, gioiTinh: 'Nữ'}) RETURN count(m) as c", new { id = motherCCCD });
-                        if (checkM.First()["c"].As<long>() == 0) return BadRequest(new { message = $"CCCD Mẹ ({motherCCCD}) không tồn tại hoặc sai giới tính (phải là Nữ)." });
-                    }
-
-                    props["trangThai"] ??= "Hoạt động";
-                    props["createdDate"] = DateTime.Now.ToString("yyyy-MM-dd");
-                    bool isAdopted = props.ContainsKey("isAdopted") && bool.TryParse(props["isAdopted"].ToString(), out bool val) ? val : false;
-                    props["isAdopted"] = isAdopted;
-                    
-                    props["fatherCCCD"] = string.IsNullOrEmpty(fatherCCCD) ? null : fatherCCCD;
-                    props["motherCCCD"] = string.IsNullOrEmpty(motherCCCD) ? null : motherCCCD;
-
-                    // *** QUAN TRỌNG: Thêm fatherCCCD và motherCCCD vào thuộc tính node ***
-                    var createChildQuery = @"
-                        CREATE (c:Person {
-                            cccd: $cccd,
-                            hoTen: $hoTen,
-                            ngaySinh: $ngaySinh,
-                            gioiTinh: $gioiTinh,
-                            queQuan: $queQuan,
-                            danToc: $danToc,
-                            tonGiao: $tonGiao,
-                            birthOrder: $birthOrder,
-                            ngheNghiep: $ngheNghiep, 
-                            trinhDoHocVan: $trinhDoHocVan,
-                            trangThai: $trangThai,
-                            createdDate: $createdDate,
-                            fatherCCCD: $fatherCCCD,
-                            motherCCCD: $motherCCCD
-                        })
-                        WITH c
-                        OPTIONAL MATCH (f:Person {cccd: $fatherCCCD})
-                        OPTIONAL MATCH (m:Person {cccd: $motherCCCD})
-                        
-                        FOREACH (_ IN CASE WHEN f IS NOT NULL THEN [1] ELSE [] END |
-                            CREATE (c)-[:CHILD_OF {birthOrder: $birthOrder, isAdopted: $isAdopted}]->(f)
-                            CREATE (f)-[:FATHER_OF {recognizedDate: $ngaySinh}]->(c)
-                        )
-
-                        FOREACH (_ IN CASE WHEN m IS NOT NULL THEN [1] ELSE [] END |
-                            CREATE (c)-[:CHILD_OF {birthOrder: $birthOrder, isAdopted: $isAdopted}]->(m)
-                            CREATE (m)-[:MOTHER_OF {recognizedDate: $ngaySinh}]->(c)
-                        )
-                        
-                        RETURN c as n";
-
-                    var result = await _repository.RunAsync(createChildQuery, props);
-                    await _logger.LogSuccess($"Tạo trẻ em (CCCD): {props["hoTen"]}", "Citizens");
-                    return Ok(MapNodeToDto(result.First()["n"].As<INode>()));
+                    return BadRequest(new { message = "Hệ thống chỉ chấp nhận công dân từ 18 tuổi trở lên." });
                 }
-                else
-                {
-                    props["trangThai"] ??= "Hoạt động";
-                    props["createdDate"] = DateTime.Now.ToString("yyyy-MM-dd");
-                    
-                    var allowedKeys = new[] { "cccd", "hoTen", "ngaySinh", "gioiTinh", "queQuan", "danToc", "tonGiao", "ngheNghiep", "trinhDoHocVan", "trangThai", "createdDate" };
-                    var cleanProps = props.Where(k => allowedKeys.Contains(k.Key)).ToDictionary(k => k.Key, v => v.Value);
 
-                    var setClause = string.Join(", ", cleanProps.Keys.Select(k => $"n.{k} = ${k}"));
-                    var query = $"CREATE (n:Person) SET {setClause} RETURN n";
+                // Thiết lập các giá trị mặc định
+                props["trangThai"] ??= "Hoạt động";
+                props["createdDate"] = DateTime.Now.ToString("yyyy-MM-dd");
 
-                    var result = await _repository.RunAsync(query, cleanProps);
-                    await _logger.LogSuccess($"Tạo người lớn: {props["hoTen"]}", "Citizens");
-                    return Ok(MapNodeToDto(result.First()["n"].As<INode>()));
-                }
+                // Chỉ lấy các trường thông tin cá nhân cơ bản, bỏ qua cha/mẹ/con thứ
+                var allowedKeys = new[] { "cccd", "hoTen", "ngaySinh", "gioiTinh", "queQuan", "danToc", "tonGiao", "ngheNghiep", "trinhDoHocVan", "trangThai", "createdDate" };
+                var cleanProps = props.Where(k => allowedKeys.Contains(k.Key)).ToDictionary(k => k.Key, v => v.Value);
+
+                var setClause = string.Join(", ", cleanProps.Keys.Select(k => $"n.{k} = ${k}"));
+                var query = $"CREATE (n:Person) SET {setClause} RETURN n";
+
+                var result = await _repository.RunAsync(query, cleanProps);
+                await _logger.LogSuccess($"Tạo công dân: {props["hoTen"]}", "Citizens");
+                return Ok(MapNodeToDto(result.First()["n"].As<INode>()));
             }
             catch (Exception ex)
             {
@@ -298,7 +234,7 @@ namespace CitizenGraph.Backend.Controllers
         }
 
         // =========================================================================================
-        // 5. CRUD CÔNG DÂN (UPDATE)
+        // 5. CRUD CÔNG DÂN (UPDATE) - ĐÃ SỬA: CHỈ UPDATE INFO CƠ BẢN, CHECK TUỔI
         // =========================================================================================
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateCitizen(string id, [FromBody] Dictionary<string, object> rawProps)
@@ -312,11 +248,18 @@ namespace CitizenGraph.Backend.Controllers
 
                 if (!props.Any()) return BadRequest("Không có dữ liệu update");
 
-                // *** QUAN TRỌNG: Thêm fatherCCCD, motherCCCD vào danh sách update properties ***
+                // Check tuổi nếu có thay đổi ngày sinh
+                if (props.ContainsKey("ngaySinh") && DateTime.TryParse(props["ngaySinh"].ToString(), out DateTime dob))
+                {
+                    var age = DateTime.Now.Year - dob.Year;
+                    if (dob > DateTime.Now.AddYears(-age)) age--;
+                    if (age < 18) return BadRequest(new { message = "Ngày sinh không hợp lệ. Công dân phải từ 18 tuổi trở lên." });
+                }
+
+                // Bỏ fatherCCCD, motherCCCD khỏi danh sách update
                 var nodeKeys = new[] { 
                     "hoTen", "ngaySinh", "gioiTinh", "queQuan", "danToc", "tonGiao", 
-                    "ngheNghiep", "trinhDoHocVan", "trangThai", "cccd", 
-                    "fatherCCCD", "motherCCCD"
+                    "ngheNghiep", "trinhDoHocVan", "trangThai", "cccd"
                 };
                 
                 var cleanProps = props.Where(k => nodeKeys.Contains(k.Key)).ToDictionary(k => k.Key, v => v.Value);
@@ -335,78 +278,7 @@ namespace CitizenGraph.Backend.Controllers
 
                 var updatedNode = result.First()["n"].As<INode>();
                 
-                DateTime dob;
-                bool isChild = false;
-                if (updatedNode.Properties.ContainsKey("ngaySinh") && DateTime.TryParse(updatedNode.Properties["ngaySinh"].ToString(), out dob))
-                {
-                    var age = DateTime.Now.Year - dob.Year;
-                    if (dob > DateTime.Now.AddYears(-age)) age--;
-                    isChild = age < 18;
-                }
-
-                // Update Relationships (chỉ nếu là trẻ em)
-                if (isChild)
-                {
-                    string fatherCCCD = props.ContainsKey("fatherCCCD") ? props["fatherCCCD"]?.ToString() : null;
-                    string motherCCCD = props.ContainsKey("motherCCCD") ? props["motherCCCD"]?.ToString() : null;
-                    object birthOrder = props.ContainsKey("birthOrder") ? props["birthOrder"] : null;
-                    object isAdopted = props.ContainsKey("isAdopted") ? props["isAdopted"] : null;
-
-                    // Chỉ xử lý nếu có dữ liệu gửi lên (không bắt buộc cả 2)
-                    if (props.ContainsKey("fatherCCCD") || props.ContainsKey("motherCCCD"))
-                    {
-                        if (string.IsNullOrEmpty(fatherCCCD) && string.IsNullOrEmpty(motherCCCD))
-                        {
-                             // Cho phép xóa nếu gửi chuỗi rỗng? Tạm thời giữ logic bắt buộc 1 trong 2 nếu update quan hệ
-                             return BadRequest(new { message = "Cần ít nhất CCCD Cha hoặc Mẹ." });
-                        }
-
-                        if (!string.IsNullOrEmpty(fatherCCCD))
-                        {
-                            var checkF = await _repository.RunAsync("MATCH (f:Person {cccd: $id, gioiTinh: 'Nam'}) RETURN count(f) as c", new { id = fatherCCCD });
-                            if (checkF.First()["c"].As<long>() == 0) return BadRequest(new { message = $"CCCD Cha ({fatherCCCD}) không tồn tại hoặc sai giới tính." });
-                        }
-                        if (!string.IsNullOrEmpty(motherCCCD))
-                        {
-                            var checkM = await _repository.RunAsync("MATCH (m:Person {cccd: $id, gioiTinh: 'Nữ'}) RETURN count(m) as c", new { id = motherCCCD });
-                            if (checkM.First()["c"].As<long>() == 0) return BadRequest(new { message = $"CCCD Mẹ ({motherCCCD}) không tồn tại hoặc sai giới tính." });
-                        }
-
-                        var updateRelQuery = @"
-                            MATCH (n:Person) WHERE n.cccd = $targetCccd
-                            
-                            OPTIONAL MATCH (newF:Person {cccd: $fatherCCCD})
-                            OPTIONAL MATCH (newM:Person {cccd: $motherCCCD})
-
-                            OPTIONAL MATCH (n)-[oldR1:CHILD_OF]->() DELETE oldR1
-                            OPTIONAL MATCH ()-[oldR2:FATHER_OF]->(n) DELETE oldR2
-                            OPTIONAL MATCH ()-[oldR3:MOTHER_OF]->(n) DELETE oldR3
-
-                            FOREACH (_ IN CASE WHEN newF IS NOT NULL THEN [1] ELSE [] END |
-                                MERGE (n)-[rF:CHILD_OF]->(newF)
-                                SET rF.birthOrder = $birthOrder, rF.isAdopted = $isAdopted
-                                MERGE (newF)-[:FATHER_OF {recognizedDate: n.ngaySinh}]->(n)
-                            )
-                            
-                            FOREACH (_ IN CASE WHEN newM IS NOT NULL THEN [1] ELSE [] END |
-                                MERGE (n)-[rM:CHILD_OF]->(newM)
-                                SET rM.birthOrder = $birthOrder, rM.isAdopted = $isAdopted
-                                MERGE (newM)-[:MOTHER_OF {recognizedDate: n.ngaySinh}]->(n)
-                            )
-                            
-                            RETURN n";
-                        
-                        var relParams = new { 
-                            targetCccd = id, 
-                            fatherCCCD = string.IsNullOrEmpty(fatherCCCD) ? null : fatherCCCD,
-                            motherCCCD = string.IsNullOrEmpty(motherCCCD) ? null : motherCCCD,
-                            birthOrder = birthOrder ?? 1, 
-                            isAdopted = isAdopted is bool b ? b : false 
-                        };
-
-                        await _repository.RunAsync(updateRelQuery, relParams);
-                    }
-                }
+                // Đã bỏ hoàn toàn phần update Relationships (child/parent)
 
                 await _logger.LogSuccess(action, "Citizens");
                 return Ok(MapNodeToDto(updatedNode));
@@ -453,14 +325,25 @@ namespace CitizenGraph.Backend.Controllers
                 {
                     switch (jsonElem.ValueKind)
                     {
-                        case JsonValueKind.String: result[kvp.Key] = jsonElem.GetString() ?? ""; break;
+                        case JsonValueKind.String: 
+                            result[kvp.Key] = jsonElem.GetString() ?? ""; 
+                            break;
                         case JsonValueKind.Number:
                             if (jsonElem.TryGetInt64(out long l)) result[kvp.Key] = l;
                             else if (jsonElem.TryGetDouble(out double d)) result[kvp.Key] = d;
                             break;
-                        case JsonValueKind.True: result[kvp.Key] = true; break;
-                        case JsonValueKind.False: result[kvp.Key] = false; break;
-                        default: result[kvp.Key] = jsonElem.ToString(); break;
+                        case JsonValueKind.True: 
+                            result[kvp.Key] = true; 
+                            break;
+                        case JsonValueKind.False: 
+                            result[kvp.Key] = false; 
+                            break;
+                        case JsonValueKind.Null: // QUAN TRỌNG: Xử lý giá trị Null
+                            result[kvp.Key] = null; 
+                            break;
+                        default: 
+                            result[kvp.Key] = jsonElem.ToString(); 
+                            break;
                     }
                 }
                 else { result[kvp.Key] = kvp.Value; }

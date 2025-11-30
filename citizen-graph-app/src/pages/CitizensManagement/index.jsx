@@ -65,7 +65,6 @@ const CitizensManagement = () => {
         danToc: "Kinh",
         tonGiao: "Không",
         trangThai: "Hoạt động",
-        isAdopted: false, 
         ngaySinh: null 
     });
     setModalVisible(true);
@@ -89,10 +88,10 @@ const CitizensManagement = () => {
       trinhDoHocVan: details.trinhDoHocVan || undefined,
       trangThai: details.trangThai || "Hoạt động",
 
-      birthOrder: details.birthOrder,
-      isAdopted: details.isAdopted, 
-      fatherCCCD: details.fatherCCCD,
-      motherCCCD: details.motherCCCD
+      // birthOrder: details.birthOrder,
+      // isAdopted: details.isAdopted, 
+      // fatherCCCD: details.fatherCCCD,
+      // motherCCCD: details.motherCCCD
     });
     setModalVisible(true);
   };
@@ -213,104 +212,35 @@ const CitizensManagement = () => {
                     <Form.Item 
                         name="ngaySinh" 
                         label="Ngày sinh" 
-                        rules={[{ required: true, message: 'Vui lòng chọn ngày sinh' }]}
+                        rules={[
+                            { required: true, message: 'Vui lòng chọn ngày sinh' },
+                            // THÊM: Validator kiểm tra tuổi >= 18
+                            () => ({
+                                validator(_, value) {
+                                    if (!value) return Promise.resolve();
+                                    if (value.isAfter(dayjs(), 'day')) {
+                                        return Promise.reject(new Error('Ngày sinh không được là ngày tương lai'));
+                                    }                                    
+                                    const age = dayjs().diff(value, 'year');
+                                    if (age < 18) {
+                                        return Promise.reject(new Error('Công dân phải từ 18 tuổi trở lên.'));
+                                    }
+                                    return Promise.resolve();
+                                },
+                            }),
+                        ]}
                     >
                         <DatePicker 
                             style={{ width: '100%' }} 
                             format="DD/MM/YYYY" 
-                            placeholder="Chọn ngày sinh" 
-                            onChange={(date) => {
-                                if (date && dayjs().diff(date, 'year') >= 18) {
-                                    form.setFieldsValue({ 
-                                        birthOrder: undefined, fatherCCCD: undefined, motherCCCD: undefined 
-                                    });
-                                }
-                            }}
+                            placeholder="Chọn ngày sinh (phải >= 18 tuổi)" 
+                            disabledDate={(current) => current && current > dayjs().endOf('day')}
                         />
                     </Form.Item>
                 </Col>
             </Row>
 
-            <Form.Item
-                noStyle
-                shouldUpdate={(prevValues, currentValues) => prevValues.ngaySinh !== currentValues.ngaySinh}
-            >
-                {({ getFieldValue }) => {
-                    const ngaySinh = getFieldValue('ngaySinh');
-                    const age = ngaySinh ? dayjs(ngaySinh).diff(dayjs(), 'year') * -1 : 20; 
-                    const currentAge = ngaySinh ? dayjs().diff(dayjs(ngaySinh), 'year') : 20;
-                    const isChild = ngaySinh && currentAge < 18;
-
-                    return isChild ? (
-                        <div style={{ marginBottom: 24, padding: 16, background: '#fff7e6', borderRadius: 8, border: '1px dashed #ffa940' }}>
-                            <div style={{fontWeight: 'bold', marginBottom: 12, color: '#d46b08'}}><AuditOutlined /> Thông tin dành cho trẻ em (Dưới 18 tuổi)</div>
-                            <Row gutter={16}>
-                                <Col span={12}>
-                                    <Form.Item 
-                                        name="birthOrder" 
-                                        label="Con thứ"
-                                        rules={[{ required: true, message: 'Nhập số' }]}
-                                    >
-                                        <InputNumber min={1} max={20} style={{width: '100%'}} placeholder="VD: 1" />
-                                    </Form.Item>
-                                </Col>
-                                <Col span={12}>
-                                    <Form.Item name="isAdopted" label="Con nuôi?" initialValue={false}>
-                                        <Select>
-                                            <Option value={false}>Không</Option>
-                                            <Option value={true}>Phải (Có)</Option>
-                                        </Select>
-                                    </Form.Item>
-                                </Col>
-                            </Row>
-                            <Row gutter={16}>
-                                <Col span={12}>
-                                    <Form.Item 
-                                        name="fatherCCCD" 
-                                        label="Số CCCD của Cha"
-                                        tooltip="Người này phải có giới tính là NAM trong hệ thống"
-                                        dependencies={['motherCCCD']}
-                                        rules={[
-                                            ({ getFieldValue }) => ({
-                                                validator(_, value) {
-                                                    if (!value && !getFieldValue('motherCCCD')) {
-                                                        return Promise.reject(new Error('Phải nhập ít nhất CCCD Cha hoặc Mẹ'));
-                                                    }
-                                                    return Promise.resolve();
-                                                },
-                                            }),
-                                            { pattern: /^\d{12}$/, message: 'CCCD phải 12 số' }
-                                        ]}
-                                    >
-                                        <Input placeholder="Nhập 12 số CCCD Cha" maxLength={12} disabled={!!editingCitizen} />
-                                    </Form.Item>
-                                </Col>
-                                <Col span={12}>
-                                    <Form.Item 
-                                        name="motherCCCD" 
-                                        label="Số CCCD của Mẹ"
-                                        tooltip="Người này phải có giới tính là NỮ trong hệ thống"
-                                        dependencies={['fatherCCCD']}
-                                        rules={[
-                                            ({ getFieldValue }) => ({
-                                                validator(_, value) {
-                                                    if (!value && !getFieldValue('fatherCCCD')) {
-                                                        return Promise.reject(new Error('Phải nhập ít nhất CCCD Cha hoặc Mẹ'));
-                                                    }
-                                                    return Promise.resolve();
-                                                },
-                                            }),
-                                            { pattern: /^\d{12}$/, message: 'CCCD phải 12 số' }
-                                        ]}
-                                    >
-                                        <Input placeholder="Nhập 12 số CCCD Mẹ" maxLength={12} disabled={!!editingCitizen} />
-                                    </Form.Item>
-                                </Col>
-                            </Row>
-                        </div>
-                    ) : null;
-                }}
-            </Form.Item>
+            {/* ĐÃ XÓA: Block Form.Item shouldUpdate kiểm tra isChild và các trường cha/mẹ */}
 
             <Row gutter={16}>
                 <Col span={12}>

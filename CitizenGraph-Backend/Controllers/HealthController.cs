@@ -68,7 +68,7 @@ namespace CitizenGraph.Backend.Controllers
         {
             var query = @"
                 MATCH (p:Person) WHERE toString(p.cccd) = $cccd
-                OPTIONAL MATCH (p)-[r:VACCINATED_WITH]->(v:Vaccine)
+                OPTIONAL MATCH (p)-[r:VACCINATED]->(v:Vaccine)
                 RETURN p.hoTen AS Name, p.covidStatus AS Status,
                        collect({ vaccine: v.name, date: toString(r.date), dose: r.dose }) AS History";
             var result = await _neo4jService.RunAsync(query, new { cccd });

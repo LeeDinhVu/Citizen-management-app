@@ -460,11 +460,11 @@ namespace CitizenGraph.Backend.Controllers
                         Address = SafeString(r["address"]),
                         Count = r["cnt"].As<int>(),
                         Members = r["members"].As<List<IDictionary<string, object>>>()
-                                  .Select(m => new MemberPreviewDto
-                                  {
-                                      Name = m["name"]?.ToString() ?? "",
-                                      Cccd = m["cccd"]?.ToString() ?? ""
-                                  }).ToList()
+                                         .Select(m => new MemberPreviewDto
+                                         {
+                                             Name = m["name"]?.ToString() ?? "",
+                                             Cccd = m["cccd"]?.ToString() ?? ""
+                                         }).ToList()
                     })
                 });
             }
@@ -534,9 +534,9 @@ namespace CitizenGraph.Backend.Controllers
             {
                 var r = await _repo.RunAsync(@"
                     MATCH (p:Person) 
-                    OPTIONAL MATCH (p)-[:FATHER_OF|MOTHER_OF]->(child:Person)
-                    WITH p, count(child) AS childrenCount
-                    RETURN p.hoTen AS name, toString(p.cccd) AS id, toString(p.ngaySinh) AS dob, childrenCount
+                    OPTIONAL MATCH (p)-[:FATHER_OF|MOTHER_OF|CHILD_OF|SIBLING|MARRIED_TO]->(relative:Person)
+                    WITH p, count(relative) AS relativeCount
+                    RETURN p.hoTen AS name, toString(p.cccd) AS id, toString(p.ngaySinh) AS dob, relativeCount
                     ORDER BY name ASC LIMIT 1000");
 
                 await _logger.LogSuccess("Xem danh sách phả hệ", "Family");
@@ -549,7 +549,7 @@ namespace CitizenGraph.Backend.Controllers
                         Cccd = SafeString(x["id"]),
                         HoTen = SafeString(x["name"]),
                         NgaySinh = SafeString(x["dob"]),
-                        SoConTrucTiep = x["childrenCount"].As<int>()
+                        SoConTrucTiep = x["relativeCount"].As<int>()
                     })
                 });
             }
@@ -634,7 +634,88 @@ namespace CitizenGraph.Backend.Controllers
         }
 
         // =========================================================================================
-        // CRUD OPERATIONS – ĐÃ CHUYỂN SANG DÙNG AdminActionLogger
+        // CRUD OPERATIONS – ĐÃ THÊM VALIDATE VÀ DÙNG LOGGER
+        // =========================================================================================
+
+// =========================================================================================
+        // LOGIC XỬ LÝ QUAN HỆ HAI CHIỀU & SCHEMA (NEW)
+        // =========================================================================================
+
+        private Dictionary<string, object> EnsureSchema(string type, Dictionary<string, object> props)
+        {
+            // Đảm bảo đầy đủ thuộc tính, nếu thiếu thì điền null/default
+            var schema = new Dictionary<string, object>();
+            switch (type)
+            {
+                case "FATHER_OF":
+                case "MOTHER_OF":
+                    schema["recognizedDate"] = null;
+                    break;
+                case "CHILD_OF":
+                    schema["birthOrder"] = null;
+                    schema["isAdopted"] = false;
+                    break;
+                case "MARRIED_TO":
+                    schema["marriageDate"] = null;
+                    schema["marriagePlace"] = "";
+                    schema["certificateNumber"] = "";
+                    schema["isActive"] = true;
+                    break;
+                case "SIBLING":
+                    schema["siblingType"] = "Ruột"; // Mặc định
+                    schema["olderYounger"] = "";
+                    break;
+            }
+
+            foreach (var kvp in schema)
+            {
+                if (!props.ContainsKey(kvp.Key)) props[kvp.Key] = kvp.Value;
+            }
+            return props;
+        }
+
+        private async Task<(string invType, Dictionary<string, object> invProps)> GetInverseRelInfo(string forwardType, Dictionary<string, object> forwardProps, string targetCccd)
+        {
+            string invType = "";
+            var invProps = new Dictionary<string, object>();
+
+            switch (forwardType)
+            {
+                case "MARRIED_TO":
+                    invType = "MARRIED_TO";
+                    invProps = new Dictionary<string, object>(forwardProps); // Copy y hệt
+                    break;
+                case "SIBLING":
+                    invType = "SIBLING";
+                    invProps = new Dictionary<string, object>(forwardProps);
+                    // olderYounger không copy y hệt được vì logic ngược, tạm để trống hoặc xử lý sau nếu cần
+                    invProps["olderYounger"] = ""; 
+                    break;
+                case "FATHER_OF":
+                case "MOTHER_OF":
+                    invType = "CHILD_OF";
+                    // Thuộc tính của con: birthOrder, isAdopted (không suy ra được từ cha mẹ -> để schema default)
+                    break;
+                case "CHILD_OF":
+                    // Cần biết giới tính của Parent (Target) để xác định FATHER_OF hay MOTHER_OF
+                    var res = await _repo.RunAsync("MATCH (p:Person {cccd: $id}) RETURN p.gioiTinh as gender", new { id = targetCccd });
+                    var gender = res.FirstOrDefault()?["gender"]?.ToString();
+                    invType = (gender == "Nam") ? "FATHER_OF" : "MOTHER_OF";
+                    // Thuộc tính cha mẹ: recognizedDate (không suy ra được -> để schema default)
+                    break;
+            }
+
+            // Apply schema cho quan hệ ngược để đảm bảo không thiếu field
+            if (!string.IsNullOrEmpty(invType))
+            {
+                invProps = EnsureSchema(invType, invProps);
+            }
+
+            return (invType, invProps);
+        }
+
+        // =========================================================================================
+        // CRUD OPERATIONS (CẢI TIẾN)
         // =========================================================================================
 
         [HttpPost("relationship")]
@@ -645,27 +726,52 @@ namespace CitizenGraph.Backend.Controllers
 
             try
             {
-                var query = @"
-                    MATCH (a:Person {cccd: $sourceId}), (b:Person {cccd: $targetId})
-                    MERGE (a)-[r:{input.Type}]->(b)
-                    ON CREATE SET r += $props
-                    RETURN r";
+                if (input.SourceId == input.TargetId)
+                    return BadRequest(new { success = false, message = "Không thể tạo quan hệ với chính mình." });
 
-                var r = await _repo.RunAsync(query, new
-                {
-                    sourceId = input.SourceId,
-                    targetId = input.TargetId,
-                    props = ConvertDictionary(input.Properties)
-                });
+                // 1. Validate tồn tại & Logic kết hôn (Giữ nguyên)
+                var checkQuery = @"MATCH (a:Person {cccd: $s}), (b:Person {cccd: $t}) RETURN count(a) as ca, count(b) as cb";
+                var checkRes = await _repo.RunAsync(checkQuery, new { s = input.SourceId, t = input.TargetId });
+                if (!checkRes.Any() || checkRes.First()["ca"].As<long>() == 0 || checkRes.First()["cb"].As<long>() == 0)
+                    return BadRequest(new { success = false, message = "Công dân không tồn tại" });
 
-                if (!r.Any())
+                if (input.Type == "MARRIED_TO")
                 {
-                    await _logger.LogFailed($"{desc} - Không tìm thấy công dân", "Family");
-                    return NotFound(new { success = false, message = "Không tìm thấy công dân" });
+                    var checkMarried = await _repo.RunAsync("MATCH (p:Person)-[:MARRIED_TO]-() WHERE p.cccd IN [$s, $t] RETURN count(*) as c", new { s = input.SourceId, t = input.TargetId });
+                    if (checkMarried.First()["c"].As<long>() > 0)
+                        return BadRequest(new { success = false, message = "Một trong hai người đã kết hôn." });
+                }
+
+                // 2. Chuẩn hóa properties xuôi
+                var forwardProps = ConvertDictionary(input.Properties);
+                forwardProps = EnsureSchema(input.Type, forwardProps);
+                forwardProps["createdDate"] = DateTime.Now.ToString("yyyy-MM-dd");
+
+                // 3. Tạo quan hệ xuôi (A -> B)
+                await _repo.RunAsync(@"
+                    MATCH (a:Person {cccd: $s}), (b:Person {cccd: $t})
+                    MERGE (a)-[r:" + input.Type + @"]->(b)
+                    SET r = $props", 
+                    new { s = input.SourceId, t = input.TargetId, props = forwardProps });
+
+                // 4. Xử lý quan hệ ngược (B -> A)
+                var (invType, invProps) = await GetInverseRelInfo(input.Type, forwardProps, input.TargetId); // TargetId là Parent trong CHILD_OF
+                
+                // Trường hợp đặc biệt: CHILD_OF (A->B) -> Target B là Parent.
+                // Hàm GetInverseRelInfo cần TargetId để check giới tính nếu là CHILD_OF -> FATHER/MOTHER
+                
+                if (!string.IsNullOrEmpty(invType))
+                {
+                    invProps["createdDate"] = DateTime.Now.ToString("yyyy-MM-dd");
+                    await _repo.RunAsync(@"
+                        MATCH (a:Person {cccd: $s}), (b:Person {cccd: $t})
+                        MERGE (b)-[r:" + invType + @"]->(a)
+                        SET r = $props", // Lưu ý hướng b -> a
+                        new { s = input.SourceId, t = input.TargetId, props = invProps });
                 }
 
                 await _logger.LogSuccess(desc, "Family");
-                return Ok(new { success = true, message = "Thành công" });
+                return Ok(new { success = true, message = "Đã tạo quan hệ hai chiều thành công" });
             }
             catch (Exception ex)
             {
@@ -682,13 +788,46 @@ namespace CitizenGraph.Backend.Controllers
 
             try
             {
-                var safeProps = ConvertDictionary(properties);
-                await _repo.RunAsync("MATCH ()-[r]->() WHERE id(r) = $relId SET r += $props RETURN r", 
-                    new { relId, props = safeProps });
+                var inputProps = ConvertDictionary(properties);
+
+                // 1. Lấy thông tin quan hệ hiện tại để biết Type và Node
+                var currentRelRes = await _repo.RunAsync(@"
+                    MATCH (a)-[r]->(b) WHERE id(r) = $id 
+                    RETURN type(r) as type, a.cccd as sourceCccd, b.cccd as targetCccd, properties(r) as oldProps", 
+                    new { id = relId });
+                
+                if (!currentRelRes.Any()) return NotFound("Quan hệ không tồn tại");
+                
+                var rec = currentRelRes.First();
+                string type = rec["type"].As<string>();
+                string sourceCccd = rec["sourceCccd"].As<string>();
+                string targetCccd = rec["targetCccd"].As<string>();
+                var oldProps = rec["oldProps"].As<Dictionary<string, object>>();
+
+                // Merge props mới vào cũ để đảm bảo schema
+                foreach(var k in inputProps.Keys) oldProps[k] = inputProps[k];
+                var finalProps = EnsureSchema(type, oldProps);
+
+                // 2. Cập nhật quan hệ xuôi
+                await _repo.RunAsync("MATCH ()-[r]->() WHERE id(r) = $id SET r = $props", new { id = relId, props = finalProps });
+
+                // 3. Cập nhật quan hệ ngược (nếu là đối xứng MARRIED_TO hoặc SIBLING)
+                // Các quan hệ cha con (FATHER_OF <-> CHILD_OF) có thuộc tính khác nhau nên update 1 chiều không nhất thiết update chiều kia
+                // Tuy nhiên, nếu muốn đồng bộ ngày kết hôn, nơi kết hôn... thì cần làm cho MARRIED_TO.
+                
+                if (type == "MARRIED_TO" || type == "SIBLING")
+                {
+                    // Tìm quan hệ ngược (B -> A) cùng loại
+                    await _repo.RunAsync(@"
+                        MATCH (b:Person {cccd: $t})-[r:" + type + @"]->(a:Person {cccd: $s})
+                        SET r = $props", 
+                        new { s = sourceCccd, t = targetCccd, props = finalProps });
+                }
+
                 await _logger.LogSuccess(desc, "Family");
                 return Ok(new { success = true });
             }
-            catch
+            catch (Exception ex)
             {
                 await _logger.LogFailed(desc, "Family");
                 throw;
@@ -698,21 +837,57 @@ namespace CitizenGraph.Backend.Controllers
         [HttpDelete("relationship/{id}")]
         public async Task<IActionResult> DeleteRelationshipById(long id)
         {
-            var desc = $"Xóa quan hệ ID:{id}";
+            var desc = $"Xóa quan hệ ID:{id} và quan hệ ngược chiều tương ứng";
             await _logger.LogProcessing(desc, "Family");
 
             try
             {
-                await _repo.RunAsync("MATCH ()-[r]->() WHERE id(r) = $id DELETE r", new { id });
+                // Logic xóa 2 chiều:
+                // 1. Tìm quan hệ gốc (r) theo ID để xác định node A và B.
+                // 2. Xóa quan hệ gốc (r).
+                // 3. Tìm và xóa quan hệ ngược chiều (invR) giữa B và A nếu có (bất kể loại quan hệ là gì để đảm bảo sạch dữ liệu).
+                
+                var query = @"
+                    MATCH (a)-[r]->(b) 
+                    WHERE id(r) = $id
+                    WITH a, b, r
+                    DELETE r
+                    WITH a, b
+                    OPTIONAL MATCH (b)-[invR]->(a)
+                    // Chỉ xóa quan hệ ngược nếu nó thuộc nhóm quan hệ gia đình (để tránh xóa nhầm các quan hệ khác nếu có)
+                    WHERE type(invR) IN ['FATHER_OF', 'MOTHER_OF', 'CHILD_OF', 'MARRIED_TO', 'SIBLING']
+                    DELETE invR";
+
+                await _repo.RunAsync(query, new { id });
+                
                 await _logger.LogSuccess(desc, "Family");
-                return Ok(new { success = true });
+                return Ok(new { success = true, message = "Đã xóa quan hệ hai chiều thành công" });
             }
-            catch
+            catch (Exception ex)
             {
-                await _logger.LogFailed(desc, "Family");
-                throw;
+                await _logger.LogFailed($"{desc} - Lỗi: {ex.Message}", "Family");
+                return StatusCode(500, new { success = false, message = ex.Message });
             }
         }
+
+        // [HttpDelete("relationship/{id}")]
+        // public async Task<IActionResult> DeleteRelationshipById(long id)
+        // {
+        //     var desc = $"Xóa quan hệ ID:{id}";
+        //     await _logger.LogProcessing(desc, "Family");
+
+        //     try
+        //     {
+        //         await _repo.RunAsync("MATCH ()-[r]->() WHERE id(r) = $id DELETE r", new { id });
+        //         await _logger.LogSuccess(desc, "Family");
+        //         return Ok(new { success = true });
+        //     }
+        //     catch
+        //     {
+        //         await _logger.LogFailed(desc, "Family");
+        //         throw;
+        //     }
+        // }
 
         [HttpPost("household")]
         public async Task<IActionResult> CreateHousehold([FromBody] HouseholdCreateDto input)
@@ -722,7 +897,19 @@ namespace CitizenGraph.Backend.Controllers
 
             try
             {
-                // BỎ: h.address / h.hoKhauSo
+                // VALIDATE: ID bắt buộc
+                if (string.IsNullOrWhiteSpace(input.HouseholdId))
+                    return BadRequest(new { success = false, message = "Mã hộ khẩu không được để trống" });
+
+                // VALIDATE: Nếu có chủ hộ, chủ hộ phải tồn tại
+                if (!string.IsNullOrEmpty(input.HeadCccd))
+                {
+                    var checkHead = await _repo.RunAsync("MATCH (p:Person {cccd: $h}) RETURN count(p) as c", new { h = input.HeadCccd });
+                    if (checkHead.First()["c"].As<long>() == 0)
+                        return BadRequest(new { success = false, message = $"Chủ hộ {input.HeadCccd} không tồn tại trong hệ thống" });
+                }
+
+                // BỎ: h.address / h.hoKhauSo (theo template cũ)
                 await _repo.RunAsync(@"
                     MERGE (h:Household {householdId: $hid})
                     ON CREATE SET 
@@ -735,7 +922,6 @@ namespace CitizenGraph.Backend.Controllers
                         hid = input.HouseholdId, 
                         head = input.HeadCccd, 
                         regNum = input.RegistrationNumber,
-                        // BỎ: addr = input.Address
                         resType = input.ResidencyType 
                     });
 
@@ -761,9 +947,6 @@ namespace CitizenGraph.Backend.Controllers
                 throw;
             }
         }
-        // =========================================================================================
-        // CRUD OPERATIONS – ĐÃ CHUYỂN SANG DÙNG AdminActionLogger CHUNG
-        // =========================================================================================
 
         [HttpPut("household/{householdId}")]
         public async Task<IActionResult> UpdateHousehold(string householdId, [FromBody] HouseholdCreateDto input)
@@ -773,21 +956,34 @@ namespace CitizenGraph.Backend.Controllers
 
             try
             {
-                // Đã thêm dòng: h.registrationDate = date($regDate)
-                await _repo.RunAsync(@"
+                // VALIDATE: Nếu thay đổi chủ hộ, người mới phải tồn tại
+                if (!string.IsNullOrEmpty(input.HeadCccd))
+                {
+                    var checkHead = await _repo.RunAsync("MATCH (p:Person {cccd: $h}) RETURN count(p) as c", new { h = input.HeadCccd });
+                    if (checkHead.First()["c"].As<long>() == 0)
+                        return BadRequest(new { success = false, message = $"Chủ hộ mới {input.HeadCccd} không tồn tại" });
+                }
+
+                // Xử lý ngày đăng ký (tránh lỗi null)
+                object regDateParam = null;
+                if (!string.IsNullOrEmpty(input.RegistrationDate)) regDateParam = input.RegistrationDate;
+
+                var updateQuery = @"
                     MATCH (h:Household {householdId: $hid})
                     SET h.registrationNumber = $regNum,
                         h.residencyType = $resType,
-                        h.headOfHouseholdCCCD = $head,
-                        h.registrationDate = date($regDate)", 
+                        h.headOfHouseholdCCCD = $head";
+                
+                if (regDateParam != null) updateQuery += ", h.registrationDate = date($regDate)";
+
+                await _repo.RunAsync(updateQuery, 
                     new
                     {
                         hid = householdId,
                         regNum = input.RegistrationNumber,
                         resType = input.ResidencyType,
                         head = input.HeadCccd,
-                        // Truyền ngày đăng ký vào (Input phải là chuỗi 'yyyy-MM-dd' hoặc DateTime đã format)
-                        regDate = input.RegistrationDate 
+                        regDate = regDateParam
                     });
 
                 await _logger.LogSuccess(desc, "Family");
@@ -827,6 +1023,19 @@ namespace CitizenGraph.Backend.Controllers
 
             try
             {
+                // VALIDATE: Kiểm tra tồn tại trước khi thêm
+                var checkQuery = @"
+                    MATCH (p:Person {cccd: $p})
+                    MATCH (h:Household {householdId: $h})
+                    RETURN count(p) as cp, count(h) as ch";
+                
+                var checkRes = await _repo.RunAsync(checkQuery, new { p = input.PersonCccd, h = input.HouseholdId });
+                if (!checkRes.Any()) return NotFound("Lỗi truy vấn");
+
+                var cr = checkRes.First();
+                if (cr["cp"].As<long>() == 0) return BadRequest(new { success = false, message = "Công dân không tồn tại" });
+                if (cr["ch"].As<long>() == 0) return BadRequest(new { success = false, message = "Hộ khẩu không tồn tại" });
+
                 var result = await _repo.RunAsync(@"
                     MATCH (p:Person {cccd: $cccd}), (h:Household {householdId: $hid})
                     MERGE (p)-[r:CURRENT_RESIDENT]->(h)
@@ -843,12 +1052,6 @@ namespace CitizenGraph.Backend.Controllers
                         rel = input.RelationToHead,
                         date = input.FromDate
                     });
-
-                if (!result.Any())
-                {
-                    await _logger.LogFailed($"{desc} - Không tìm thấy người hoặc hộ khẩu", "Family");
-                    return NotFound(new { success = false });
-                }
 
                 await _logger.LogSuccess(desc, "Family");
                 return Ok(new { success = true });
@@ -915,6 +1118,10 @@ namespace CitizenGraph.Backend.Controllers
 
             try
             {
+                // VALIDATE: Tên không được để trống
+                if (string.IsNullOrWhiteSpace(input.HoTen))
+                    return BadRequest(new { success = false, message = "Họ tên không được để trống" });
+
                 await _repo.RunAsync(@"
                     MATCH (p:Person {cccd: $cccd})
                     SET p.hoTen = $name,
@@ -944,8 +1151,7 @@ namespace CitizenGraph.Backend.Controllers
             }
         }
         // --- HELPERS (Giữ nguyên) ---
-        private Dictionary<string, object> ConvertDictionary(Dictionary<string, object> input) { var result = new Dictionary<string, object>(); foreach (var kvp in input) { if (kvp.Value is JsonElement jsonElem) { switch (jsonElem.ValueKind) { case JsonValueKind.String: result[kvp.Key] = jsonElem.GetString() ?? ""; break; case JsonValueKind.Number: if(jsonElem.TryGetInt64(out long l)) result[kvp.Key] = l; else if(jsonElem.TryGetDouble(out double d)) result[kvp.Key] = d; break; case JsonValueKind.True: result[kvp.Key] = true; break; case JsonValueKind.False: result[kvp.Key] = false; break; default: result[kvp.Key] = jsonElem.ToString(); break; } } else { result[kvp.Key] = kvp.Value; } } return result; }
-        private object NormalizeValue(object value) { if (value == null) return null; if (value is LocalDate localDate) return localDate.ToString(); if (value is ZonedDateTime zdt) return zdt.ToString(); if (value is LocalDateTime ldt) return ldt.ToString(); if (value is OffsetTime ot) return ot.ToString(); if (value is LocalTime lt) return lt.ToString(); return value; }
+        private Dictionary<string, object> ConvertDictionary(Dictionary<string, object> input) { var result = new Dictionary<string, object>(); foreach (var kvp in input) { if (kvp.Value is JsonElement jsonElem) { switch (jsonElem.ValueKind) { case JsonValueKind.String: result[kvp.Key] = jsonElem.GetString() ?? ""; break; case JsonValueKind.Number: if (jsonElem.TryGetInt64(out long l)) result[kvp.Key] = l; else if (jsonElem.TryGetDouble(out double d)) result[kvp.Key] = d; break; case JsonValueKind.True: result[kvp.Key] = true; break; case JsonValueKind.False: result[kvp.Key] = false; break; case JsonValueKind.Null: result[kvp.Key] = null; break; default: result[kvp.Key] = jsonElem.ToString(); break; } } else { result[kvp.Key] = kvp.Value; } } return result; }        private object NormalizeValue(object value) { if (value == null) return null; if (value is LocalDate localDate) return localDate.ToString(); if (value is ZonedDateTime zdt) return zdt.ToString(); if (value is LocalDateTime ldt) return ldt.ToString(); if (value is OffsetTime ot) return ot.ToString(); if (value is LocalTime lt) return lt.ToString(); return value; }
         private Dictionary<string, object> NormalizeDictionary(IReadOnlyDictionary<string, object> input) { var result = new Dictionary<string, object>(); foreach (var kvp in input) result[kvp.Key] = NormalizeValue(kvp.Value); return result; }
         private IActionResult ProcessGraphResult(IRecord rec) { var nodeList = rec["nodes"].As<List<INode>>(); var nodesDict = new Dictionary<string, PersonDto>(); foreach (var n in nodeList) { if (n==null) continue; bool isHousehold = n.Labels.Contains("Household"); string id = isHousehold ? (GetProp(n.Properties, "householdId") ?? n.Id.ToString()) : (GetProp(n.Properties, "cccd") ?? n.Id.ToString()); if (!nodesDict.ContainsKey(id)) { var dto = MapNodeToDto(n); if(isHousehold) { dto.HoTen = "Hộ khẩu: " + (GetProp(n.Properties, "hoKhauSo") ?? id); dto.GioiTinh = "Household"; } nodesDict[id] = dto; } } var relList = rec["rels"].As<List<IRelationship>>(); var finalLinks = new List<RelationshipDto>(); var neoIdToId = new Dictionary<long, string>(); foreach(var n in nodeList) { if(n==null) continue; bool isHousehold = n.Labels.Contains("Household"); string id = isHousehold ? (GetProp(n.Properties, "householdId") ?? n.Id.ToString()) : (GetProp(n.Properties, "cccd") ?? n.Id.ToString()); neoIdToId[n.Id] = id; } foreach (var r in relList) { if (r == null) continue; if (neoIdToId.ContainsKey(r.StartNodeId) && neoIdToId.ContainsKey(r.EndNodeId)) { finalLinks.Add(new RelationshipDto { Id = r.Id, Source = neoIdToId[r.StartNodeId], Target = neoIdToId[r.EndNodeId], Type = r.Type, Label = TranslateRelType(r.Type), Properties = NormalizeDictionary(r.Properties) }); } } return Ok(new { success = true, data = new { nodes = nodesDict.Values.ToList(), links = finalLinks } }); }
         private PersonDto MapNodeToDto(INode node) { var props = node.Properties; return new PersonDto { Id = GetProp(props, "cccd") ?? GetProp(props, "householdId") ?? node.Id.ToString(), HoTen = GetProp(props, "hoTen") ?? "Không tên", NgaySinh = NormalizeValue(GetPropObj(props, "ngaySinh"))?.ToString(), GioiTinh = GetProp(props, "gioiTinh"), QueQuan = GetProp(props, "queQuan"), MaritalStatus = GetProp(props, "maritalStatus"), NgheNghiep = GetProp(props, "ngheNghiep"), Details = NormalizeDictionary(props) }; }

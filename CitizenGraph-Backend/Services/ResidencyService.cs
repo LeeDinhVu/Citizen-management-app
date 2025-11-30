@@ -1184,4 +1184,3 @@ namespace CitizenGraph.Backend.Services
         }
     }
 }
-

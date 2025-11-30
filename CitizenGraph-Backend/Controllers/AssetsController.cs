@@ -11,10 +11,10 @@ namespace CitizenGraph.Backend.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-public class AssetsController : ControllerBase
+    public class AssetsController : ControllerBase
     {
         private readonly Neo4jRepository _repository;
-        private readonly AdminActionLogger _logger; // DÙNG CHUNG LOGGER
+        private readonly AdminActionLogger _logger;
 
         public AssetsController(Neo4jRepository repository, AdminActionLogger logger)
         {
@@ -23,7 +23,7 @@ public class AssetsController : ControllerBase
         }
 
         // =========================================================================================
-        // 1. DASHBOARD – ĐÃ SỬA LỖI SUM() + TRẢ VỀ TRƯỜNG ĐÚNG + DÙNG LOGGER
+        // 1. DASHBOARD
         // =========================================================================================
         [HttpGet("dashboard")]
         public async Task<IActionResult> GetOwnershipDashboard()
@@ -201,6 +201,13 @@ public class AssetsController : ControllerBase
             if (label == null) return BadRequest("Loại tài sản không hợp lệ");
 
             var cleanProps = ConvertDictionary(properties);
+
+            // ---------------------------------------------------------------------
+            // THÊM: VALIDATE DỮ LIỆU ĐẦU VÀO THEO TIÊU CHUẨN
+            // ---------------------------------------------------------------------
+            var validationError = ValidateAssetProperties(label, cleanProps);
+            if (validationError != null) return BadRequest(new { message = validationError });
+
             var idField = GetIdField(type);
             if (!cleanProps.ContainsKey(idField))
                 cleanProps[idField] = Guid.NewGuid().ToString("N").Substring(0, 8).ToUpper();
@@ -234,6 +241,24 @@ public class AssetsController : ControllerBase
             if (label == null) return BadRequest("Loại tài sản không hợp lệ");
 
             var cleanProps = ConvertDictionary(properties);
+
+            // ---------------------------------------------------------------------
+            // THÊM: VALIDATE DỮ LIỆU KHI UPDATE (Chỉ validate các trường có gửi lên)
+            // ---------------------------------------------------------------------
+            if (label == "RealEstate")
+            {
+                if (cleanProps.TryGetValue("valueVND", out var val) && Convert.ToDouble(val) < 0) return BadRequest("Giá trị BĐS không được âm.");
+                if (cleanProps.TryGetValue("area", out var area) && Convert.ToDouble(area) <= 0) return BadRequest("Diện tích phải lớn hơn 0.");
+            }
+            else if (label == "Vehicle")
+            {
+                if (cleanProps.TryGetValue("valueVND", out var val) && Convert.ToDouble(val) < 0) return BadRequest("Giá trị xe không được âm.");
+            }
+            else if (label == "Business")
+            {
+                if (cleanProps.TryGetValue("registeredCapital", out var cap) && Convert.ToDouble(cap) <= 0) return BadRequest("Vốn điều lệ phải lớn hơn 0.");
+            }
+
             cleanProps["targetId"] = id;
 
             var setClause = string.Join(", ", cleanProps.Keys.Where(k => k != "targetId").Select(k => $"n.{k} = ${k}"));
@@ -283,7 +308,7 @@ public class AssetsController : ControllerBase
         }
 
         // =========================================================================================
-        // 4. GÁN / GỠ QUYỀN SỞ HỮU
+        // 4. GÁN / GỠ QUYỀN SỞ HỮU (CÓ CHECK TUỔI)
         // =========================================================================================
         [HttpPost("ownership/assign")]
         public async Task<IActionResult> AssignOwnership([FromBody] AssignRequest req)
@@ -296,21 +321,49 @@ public class AssetsController : ControllerBase
             var relType = GetRelType(req.AssetType);
             if (label == null) return BadRequest("Loại tài sản không hợp lệ");
 
-            var query = $@"
-                MATCH (p:Person {{cccd: $cccd}})
-                MATCH (a:{label} {{{idField}: $assetId}})
-                MERGE (p)-[r:{relType}]->(a)
-                ON CREATE SET r.assignedDate = date()
-                ON MATCH  SET r.assignedDate = date()
-                RETURN r";
-
+            // ---------------------------------------------------------------------
+            // THÊM: KIỂM TRA ĐỘ TUỔI CÔNG DÂN (PHẢI >= 18)
+            // ---------------------------------------------------------------------
             try
             {
+                var checkAgeQuery = "MATCH (p:Person {cccd: $cccd}) RETURN p.ngaySinh AS dob";
+                var ageResult = await _repository.RunAsync(checkAgeQuery, new { req.cccd });
+                
+                if (!ageResult.Any()) return BadRequest("Không tìm thấy công dân với số CCCD này.");
+                
+                var dobStr = ageResult.First()["dob"].As<string>();
+                if (DateTime.TryParse(dobStr, out DateTime dob))
+                {
+                    var age = DateTime.Now.Year - dob.Year;
+                    if (dob > DateTime.Now.AddYears(-age)) age--;
+                    
+                    if (age < 18)
+                    {
+                        await _logger.LogFailed($"{action} - Từ chối: Chưa đủ 18 tuổi", "Assets");
+                        return BadRequest(new { message = $"Công dân chưa đủ 18 tuổi (Tuổi hiện tại: {age}). Không thể đứng tên tài sản." });
+                    }
+                }
+                else 
+                {
+                    return BadRequest("Dữ liệu ngày sinh của công dân không hợp lệ.");
+                }
+
+                // ---------------------------------------------------------------------
+                // TIẾN HÀNH GÁN
+                // ---------------------------------------------------------------------
+                var query = $@"
+                    MATCH (p:Person {{cccd: $cccd}})
+                    MATCH (a:{label} {{{idField}: $assetId}})
+                    MERGE (p)-[r:{relType}]->(a)
+                    ON CREATE SET r.assignedDate = date()
+                    ON MATCH  SET r.assignedDate = date()
+                    RETURN r";
+
                 var result = await _repository.RunAsync(query, new { req.cccd, req.assetId });
                 if (!result.Any())
                 {
-                    await _logger.LogFailed($"{action} - Không tìm thấy", "Assets");
-                    return BadRequest("Không tìm thấy công dân hoặc tài sản");
+                    await _logger.LogFailed($"{action} - Không tìm thấy tài sản", "Assets");
+                    return BadRequest("Không tìm thấy tài sản tương ứng.");
                 }
 
                 await _logger.LogSuccess(action, "Assets");
@@ -352,8 +405,30 @@ public class AssetsController : ControllerBase
         }
 
         // =========================================================================================
-        // HELPER FUNCTIONS (ĐÃ CẬP NHẬT)
+        // HELPER FUNCTIONS
         // =========================================================================================
+
+        private string? ValidateAssetProperties(string label, Dictionary<string, object> props)
+        {
+            if (label == "RealEstate")
+            {
+                if (!props.ContainsKey("valueVND") || Convert.ToDouble(props["valueVND"]) < 0) return "Giá trị BĐS là bắt buộc và không được âm.";
+                if (props.TryGetValue("area", out var area) && Convert.ToDouble(area) <= 0) return "Diện tích phải lớn hơn 0.";
+                if (!props.ContainsKey("assetType")) return "Loại tài sản (nhà/đất) là bắt buộc.";
+            }
+            else if (label == "Vehicle")
+            {
+                if (!props.ContainsKey("valueVND") || Convert.ToDouble(props["valueVND"]) < 0) return "Giá trị xe là bắt buộc và không được âm.";
+                if (!props.ContainsKey("licensePlate") || string.IsNullOrWhiteSpace(props["licensePlate"].ToString())) return "Biển số xe là bắt buộc.";
+            }
+            else if (label == "Business")
+            {
+                if (!props.ContainsKey("registeredCapital") || Convert.ToDouble(props["registeredCapital"]) <= 0) return "Vốn điều lệ phải lớn hơn 0.";
+                if (!props.ContainsKey("taxCode") || string.IsNullOrWhiteSpace(props["taxCode"].ToString())) return "Mã số thuế là bắt buộc.";
+                if (!props.ContainsKey("businessName") || string.IsNullOrWhiteSpace(props["businessName"].ToString())) return "Tên doanh nghiệp là bắt buộc.";
+            }
+            return null;
+        }
 
         private string? ValidateType(string? type) => type?.ToLower() switch
         {
@@ -399,7 +474,6 @@ public class AssetsController : ControllerBase
         }
 
         private object NormalizeValue(object value) { if (value == null) return null; if (value is LocalDate localDate) return localDate.ToString(); if (value is ZonedDateTime zdt) return zdt.ToString(); if (value is LocalDateTime ldt) return ldt.ToString(); if (value is OffsetTime ot) return ot.ToString(); if (value is LocalTime lt) return lt.ToString(); return value; }
-
 
         private Dictionary<string, object> NormalizeDictionary(IReadOnlyDictionary<string, object> dict)
         {
